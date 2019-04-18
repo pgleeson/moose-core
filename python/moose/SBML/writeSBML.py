@@ -13,12 +13,27 @@
 **           copyright (C) 2003-2017 Upinder S. Bhalla. and NCBS
 Created : Friday May 27 12:19:00 2016(+0530)
 Version
-Last-Updated: Sat 6 Jan 01:10:00 2018(+0530)
+Last-Updated: Tue 29 Jan 15:15:10 2019(+0530)
           By: HarshaRani
 **********************************************************************/
 /****************************
+2019
+Jan 29: getColor are taken from chemConnectUtil, group's width and height are written
 2018
-Jan 6: for Product_formation_, k3 units depends on noofSub, prd was passed which is fixed
+Dec 07: using fixXreac's restoreXreacs function to remove xfer
+Dec 03: add diff and motor constants to pool
+Nov 30: group id is changed from name to moose_id and group.name is added along with annotation for group listing
+Nov 22: searched for _xfer_ instead of xfer
+Nov 12: xfer cross compartment molecules are not written to SBML instead written the original molecule also for connecting Reaction and Enzyme 
+Nov 06: All the Mesh Cyl,Cube,Neuro,Endo Mesh's can be written into SBML format with annotation field where Meshtype\
+        numDiffCompts,isMembraneBound and surround are written out.
+        For EndoMesh check made to see surround is specified
+Oct 20: EndoMesh added to SBML
+Oct 16: CylMesh's comparment volume is written, but zeroth volex details are populated 
+Oct 13: CylMesh are written to SBML with annotation field and only zeroth element/voxel (incase of cylMesh) of moose object is written
+Oct 1 : corrected the spell of CyclMesh-->CylMesh, negating the yaxis for kkit is removed 
+Apr 30: indentation corrected while writting annotation for enzymecomplex
+Jan 6 : for Product_formation_, k3 units depends on noofSub, prd was passed which is fixed
 2017
 Dec 15: If model path exists is checked
         Enz cplx is written only if enz,cplx,sub, prd exist, a clean check is made
@@ -31,16 +46,13 @@ Aug 3 : Added recalculatecoordinates,cleanup in groupName
 '''
 import sys
 import re
+import os
 import moose
 from moose.SBML.validation import validateModel
-from moose.chemUtil.chemConnectUtil import *
+from moose.chemUtil.chemConnectUtil import xyPosition,mooseIsInstance,findCompartment,getColor,setupItem
 from moose.chemUtil.graphUtils import *
-
-
-# ToDo:
-#   Table should be written
-# boundary condition for buffer pool having assignment statment constant
-# shd be false
+from moose.fixXreacs import restoreXreacs
+import numpy as np
 
 foundLibSBML_ = False
 try:
@@ -77,15 +89,19 @@ def mooseWriteSBML(modelpath, filename, sceneitems={}):
     if not moose.exists(modelpath):
         return False, "Path doesn't exist"
     elif moose.exists(modelpath):
-        mObj = moose.wildcardFind(moose.element(modelpath).path+'/##[ISA=PoolBase]'+','+
-                                  moose.element(modelpath).path+'/##[ISA=ReacBase]'+','+
-                                  moose.element(modelpath).path+'/##[ISA=EnzBase]'+','+
-                                  moose.element(modelpath).path+'/##[ISA=StimulusTable]')
+        moose.fixXreacs.restoreXreacs(modelpath)
+        checkCompt = moose.wildcardFind(modelpath+'/##[0][ISA=ChemCompt]')
+        
+        mObj = moose.wildcardFind(moose.element(modelpath).path+'/##[0][ISA=PoolBase]'+','+
+                                  moose.element(modelpath).path+'/##[0][ISA=ReacBase]'+','+
+                                  moose.element(modelpath).path+'/##[0][ISA=EnzBase]'+','+
+                                  moose.element(modelpath).path+'/##[0][ISA=StimulusTable]')
         for p in mObj:
             if not isinstance(moose.element(p.parent),moose.CplxEnzBase):
                 if moose.exists(p.path+'/info'):
                     xcord.append(moose.element(p.path+'/info').x)
                     ycord.append(moose.element(p.path+'/info').y)
+                    getColor(moose.element(p.path+'/info').path)
         recalculatecoordinates(modelpath,mObj,xcord,ycord)
     positionInfoexist = False
 
@@ -106,7 +122,8 @@ def mooseWriteSBML(modelpath, filename, sceneitems={}):
     cremodel_.setLengthUnits("length")
     neutralNotes = ""
 
-    specieslist = moose.wildcardFind(modelpath + '/##[ISA=PoolBase]')
+    specieslist = moose.wildcardFind(modelpath + '/##[0][ISA=PoolBase]')
+    
     if specieslist:
         neutralPath = getGroupinfo(specieslist[0])
         if moose.exists(neutralPath.path + '/info'):
@@ -121,61 +138,91 @@ def mooseWriteSBML(modelpath, filename, sceneitems={}):
     srcdesConnection = {}
 
     writeUnits(cremodel_)
+    
     modelAnno = writeSimulationAnnotation(modelpath)
+    
     if modelAnno:
         cremodel_.setAnnotation(modelAnno)
     groupInfo = {}
-    compartexist, groupInfo = writeCompt(modelpath, cremodel_)
+    compterrors =""
+    compartexist, groupInfo,compterrors = writeCompt(modelpath, cremodel_)
+    
     if compartexist == True:
         species = writeSpecies( modelpath,cremodel_,sbmlDoc,sceneitems,groupInfo)
         if species:
             writeFunc(modelpath, cremodel_)
         reacGroup = {}
+        
         writeReac(modelpath, cremodel_, sceneitems,groupInfo)
+        
         writeEnz(modelpath, cremodel_, sceneitems,groupInfo)
+        
         if groupInfo:
             for key,value in groupInfo.items():
                 mplugin = cremodel_.getPlugin("groups")
                 group = mplugin.createGroup()
                 name = str(idBeginWith(moose.element(key).name))
-                group.setId(name)
+                moosegrpId = name +"_" + str(moose.element(key).getId().value) + "_" + str(moose.element(key).getDataIndex())+"_"
+                group.setId(moosegrpId) 
+                group.setName(name)
+
                 group.setKind("collection")
                 if moose.exists(key.path+'/info'):
                     ginfo = moose.element(key.path+'/info')
                 else:
-                    moose.Annotator(key.path+'/info')
+                    ginfo = moose.Annotator(key.path+'/info')
+                
                 groupCompartment = findCompartment(key)
-                if ginfo.color != '':
-                    grpAnno = "<moose:GroupAnnotation>"
-                    grpAnno = grpAnno + "<moose:Compartment>" + groupCompartment.name + "</moose:Compartment>\n"
+                
+                grpAnno = "<moose:GroupAnnotation>"
+                grpAnno = grpAnno + "<moose:Compartment>" + groupCompartment.name +"_"+ str(moose.element(groupCompartment).getId().value) +"_"+ str(moose.element(groupCompartment).getDataIndex())+"_"+"</moose:Compartment>\n"
+                #grpAnno = grpAnno + "<moose:Compartment>" + groupCompartment.name + "_" + str(moose.element(groupCompartment).getId().value) + "_" + str(moose.element(groupCompartment).getDataIndex()) + "_"+ "</moose:Compartment>\n"
+                if moose.element(key.parent).className == "Neutral":
+
+                    grpAnno = grpAnno + "<moose:Group>" + key.parent.name + "</moose:Group>\n"
+                    grpparent = key.parent.name + "_" + str(moose.element(key.parent).getId().value) + "_" + str(moose.element(key.parent).getDataIndex()) + "_"
+                    grpAnno = grpAnno + "<moose:Parent>" + grpparent + "</moose:Parent>\n"
+                else:
+                    grpparent = groupCompartment.name + "_" + str(moose.element(groupCompartment).getId().value) + "_" + str(moose.element(groupCompartment).getDataIndex()) + "_"
+                    grpAnno = grpAnno + "<moose:Parent>" + grpparent + "</moose:Parent>\n"
+                
+                if moose.exists(key.path+'/info'):
+                    ginfo = moose.element(key.path+'/info')
+                    if ginfo.height and ginfo.width:
+                        grpAnno = grpAnno + "<moose:x>" + str(ginfo.x) + "</moose:x>\n"
+                        grpAnno = grpAnno + "<moose:y>" + str(ginfo.y) + "</moose:y>\n"
+                        grpAnno = grpAnno + "<moose:width>" + str(ginfo.width) + "</moose:width>\n"
+                        grpAnno = grpAnno + "<moose:height>" + str(ginfo.height) + "</moose:height>\n"
                     if ginfo.color:
                         grpAnno = grpAnno + "<moose:bgColor>" + ginfo.color + "</moose:bgColor>\n"
-                    grpAnno = grpAnno + "</moose:GroupAnnotation>"
-                    group.setAnnotation(grpAnno)
+                    if ginfo.notes:
+                        grpAnno = grpAnno + "<moose:Notes>" + ginfo.notes + "</moose:Notes>\n"
+                grpAnno = grpAnno + "</moose:GroupAnnotation>"
+                group.setAnnotation(grpAnno)
 
                 for values in value:
                     member = group.createMember()
                     member.setIdRef(values)
+        
         consistencyMessages = ""
         SBMLok = validateModel(sbmlDoc)
         if (SBMLok):
             writeTofile = filepath + "/" + filename + '.xml'
             writeSBMLToFile(sbmlDoc, writeTofile)
             return True, consistencyMessages, writeTofile
-
+        
         if (not SBMLok):
             #cerr << "Errors encountered " << endl
             consistencyMessages = "Errors encountered"
             return -1, consistencyMessages
     else:
-        return False, "Atleast one compartment should exist to write SBML"
-
-def calPrime(x):
-    prime = int((20 * (float(x - cmin) / float(cmax - cmin))) - 10)
-    return prime
-
+        if compterrors:
+            return False, compterrors
+        else:
+            return False,"Atleast one compartment should exist to write SBML"
+    
 def writeEnz(modelpath, cremodel_, sceneitems,groupInfo):
-    for enz in moose.wildcardFind(modelpath + '/##[ISA=EnzBase]'):
+    for enz in moose.wildcardFind(modelpath + '/##[0][ISA=EnzBase]'):
         enzannoexist = False
         enzGpnCorCol = " "
         cleanEnzname = convertSpecialChar(enz.name)
@@ -231,7 +278,6 @@ def writeEnz(modelpath, cremodel_, sceneitems,groupInfo):
                 compt = comptVec.name + "_" + \
                     str(comptVec.getId().value) + "_" + \
                     str(comptVec.getDataIndex()) + "_"
-            
             #Writting out S+E -> SE*
             enzsetId = str(idBeginWith(cleanEnzname +
                                          "_" + str(enz.getId().value) +
@@ -254,7 +300,6 @@ def writeEnz(modelpath, cremodel_, sceneitems,groupInfo):
                         enzAnno = enzAnno + "<moose:enzyme>" + \
                             (str(idBeginWith(convertSpecialChar(
                                 nameList_[i])))) + "</moose:enzyme>\n"
-
                     #Finding Substrate, (S)
                     enzSub = enz.neighbors["sub"]
                     if not enzSub:
@@ -277,7 +322,6 @@ def writeEnz(modelpath, cremodel_, sceneitems,groupInfo):
                                 enzAnno = enzAnno + "<moose:product>" + \
                                     nameList_[i] + "</moose:product>\n"
                             foundEnzymeComplex = True
-
             if foundEnzymeComplex:
                 # Only if S+E->SE* found, reaction is created
                 enzyme = cremodel_.createReaction()
@@ -318,15 +362,16 @@ def writeEnz(modelpath, cremodel_, sceneitems,groupInfo):
                 printParameters(kl, "k1", k1, unit)
                 punit = parmUnit(noofPrd - 1, cremodel_)
                 printParameters(kl, "k2", k2, punit)
-
                 if groupName != moose.element('/'):
                     if groupName not in groupInfo:
-                        groupInfo[groupName]=[enzsetId]
+                        #groupInfo[groupName]=[enzsetId]
+                        groupInfo[groupName]=[nameList_[0]]
                     else:
-                        groupInfo[groupName].append(enzsetId)       
+                        #groupInfo[groupName].append(enzsetId)
+                        groupInfo[groupName].append(nameList_[0])
             else:
                 if secplxerror:
-                    print ("\'"+enz.name+"\' this enzyme is not written to file because,"+ secplxerror)
+                    print ("\'"+enz.parent.name+ "/"+enz.name+"\' this enzyme is not written to file because,"+ secplxerror)
             
             #Here SE* -> E+ P
             foundEnzymeEP = False
@@ -335,6 +380,7 @@ def writeEnz(modelpath, cremodel_, sceneitems,groupInfo):
                                         "_" + str(enz.getDataIndex()) +
                                         "_" + "Product_formation_"))
             cplxeperror = ""
+            enzAnno2 = ""
             #enzSubt = ""
             enzOut = enz.neighbors["enzOut"]
             if not enzOut:
@@ -375,16 +421,15 @@ def writeEnz(modelpath, cremodel_, sceneitems,groupInfo):
                             for i in range(0, len(nameList_)):
                                 enzAnno2 = enzAnno2 + "<moose:product>" + \
                                             nameList_[i] + "</moose:product>\n"
-                                enzAnno2 += "<moose:groupName>" + cleanEnzname + "_" + \
-                                str(enz.getId().value) + "_" + \
-                                str(enz.getDataIndex()) + "_" + "</moose:groupName>\n"
-                                enzAnno2 += "<moose:stage>2</moose:stage> \n"
-                                if enzannoexist:
-                                    enzAnno2 = enzAnno2 + enzGpnCorCol
-                                enzAnno2 += "</moose:EnzymaticReaction>"
+                        enzAnno2 += "<moose:groupName>" + cleanEnzname + "_" + \
+                            str(enz.getId().value) + "_" + \
+                            str(enz.getDataIndex()) + "_" + "</moose:groupName>\n"
+                        enzAnno2 += "<moose:stage>2</moose:stage> \n"
+                        if enzannoexist:
+                            enzAnno2 = enzAnno2 + enzGpnCorCol
+                        enzAnno2 += "</moose:EnzymaticReaction>"
 
-                            foundEnzymeEP = True
-            
+                        foundEnzymeEP = True
             if foundEnzymeEP:
                 enzyme = cremodel_.createReaction()
                 enzyme.setId(enzsetIdP)
@@ -407,9 +452,11 @@ def writeEnz(modelpath, cremodel_, sceneitems,groupInfo):
                 printParameters(kl, "k3", k3, unit)
                 if groupName != moose.element('/'):
                     if groupName not in groupInfo:
-                        groupInfo[groupName]=[enzsetIdP]
+                        #groupInfo[groupName]=[nameList_[0]]
+                        pass
                     else:
-                        groupInfo[groupName].append(enzsetIdP)
+                        #groupInfo[groupName].append(nameList_[0])
+                        pass
             else:
                 print (cplxeperror)
         elif(enz.className == "MMenz" or enz.className == "ZombieMMenz"):
@@ -591,6 +638,15 @@ def processRateLaw(objectCount, cremodel, noofObj, type, mobjEnz):
     nameList_[:] = []
     for value, count in objectCount.items():
         value = moose.element(value)
+        '''
+        if re.search("_xfer_",value.name):
+            modelRoot = value.path[0:value.path.index('/',1)]
+            xrefPool = value.name[:value.name.index("_xfer_")]
+            xrefCompt = value.name[value.name.index("_xfer_") + len("_xfer_"):]
+            orgCompt = moose.wildcardFind(modelRoot+'/##[FIELD(name)='+xrefCompt+']')[0]
+            orgPool = moose.wildcardFind(orgCompt.path+'/##[FIELD(name)='+xrefPool+']')[0]
+            value = orgPool
+        '''
         nameIndex = value.name + "_" + \
             str(value.getId().value) + "_" + str(value.getDataIndex()) + "_"
         clean_name = (str(idBeginWith(convertSpecialChar(nameIndex))))
@@ -638,7 +694,7 @@ def listofname(reacSub, mobjEnz):
 
 
 def writeReac(modelpath, cremodel_, sceneitems,reacGroup):
-    for reac in moose.wildcardFind(modelpath + '/##[ISA=ReacBase]'):
+    for reac in moose.wildcardFind(modelpath + '/##[0][ISA=ReacBase]'):
         reacSub = reac.neighbors["sub"]
         reacPrd = reac.neighbors["prd"]
         if (len(reacSub) != 0 and len(reacPrd) != 0):
@@ -771,11 +827,12 @@ def writeReac(modelpath, cremodel_, sceneitems,reacGroup):
 
 
 def writeFunc(modelpath, cremodel_):
-    funcs = moose.wildcardFind(modelpath + '/##[ISA=Function]')
+    funcs = moose.wildcardFind(modelpath + '/##[0][ISA=Function]')
     # if func:
     foundFunc = False
     for func in funcs:
         if func:
+            #not neccessary parent is compartment can be group also
             if func.parent.className == "CubeMesh" or func.parent.className == "CyclMesh":
                 if len(moose.element(func).neighbors["valueOut"]) > 0:
                     funcEle = moose.element(
@@ -785,8 +842,16 @@ def writeFunc(modelpath, cremodel_):
                     funcEle.name + "_" + str(funcEle.getId().value) + "_" + str(funcEle.getDataIndex()) + "_"))
                     expr = " "
                     expr = str(moose.element(func).expr)
-                    if not expr:
+                    if expr:
                         foundFunc = True
+                        item = func.path + '/x[0]'
+                        sumtot = moose.element(item).neighbors["input"]
+                        for i in range(0, len(sumtot)):
+                            v = "x" + str(i)
+                            if v in expr:
+                                z = str(idBeginWith(str(convertSpecialChar(sumtot[i].name + "_" + str(moose.element(
+                                    sumtot[i]).getId().value) + "_" + str(moose.element(sumtot[i]).getDataIndex())) + "_")))
+                                expr = expr.replace(v, z)
             else:
                 foundFunc = True
                 fName = idBeginWith(convertSpecialChar(func.parent.name +
@@ -823,7 +888,7 @@ def getGroupinfo(element):
     #   if /modelpath/Compartment/Group/Group1/Pool, then I check and get Group1
     #   And /modelpath is also a NeutralObject,I stop till I find Compartment
 
-    while not mooseIsInstance(element, ["Neutral", "CubeMesh", "CyclMesh"]):
+    while not mooseIsInstance(element, ["Neutral", "CubeMesh", "CylMesh","EndoMesh","NeuroMesh"]):
         element = element.parent
     return element
 
@@ -835,7 +900,7 @@ def idBeginWith(name):
     return changedName
 
 def findGroup_compt(melement):
-    while not (mooseIsInstance(melement, ["Neutral","CubeMesh", "CyclMesh"])):
+    while not (mooseIsInstance(melement, ["Neutral","CubeMesh", "CylMesh","EndoMesh","NeuroMesh"])):
         melement = melement.parent
     return melement
 
@@ -864,83 +929,83 @@ def convertSpecialChar(str1):
 
 def writeSpecies(modelpath, cremodel_, sbmlDoc, sceneitems,speGroup):
     # getting all the species
-    for spe in moose.wildcardFind(modelpath + '/##[ISA=PoolBase]'):
-        sName = convertSpecialChar(spe.name)
-        comptVec = findCompartment(spe)
-        speciannoexist = False
-        speciGpname = ""
-
-        if not isinstance(moose.element(comptVec), moose.ChemCompt):
-            return -2
-        else:
-            compt = comptVec.name + "_" + \
-                str(comptVec.getId().value) + "_" + \
-                str(comptVec.getDataIndex()) + "_"
-            s1 = cremodel_.createSpecies()
-            spename = sName + "_" + \
-                str(spe.getId().value) + "_" + str(spe.getDataIndex()) + "_"
-            spename = str(idBeginWith(spename))
-            s1.setId(spename)
-
-            if spename.find(
-                    "cplx") != -1 and isinstance(moose.element(spe.parent), moose.EnzBase):
-                enz = spe.parent
-                if (moose.element(enz.parent), moose.PoolBase):
-                    # print " found a cplx name ",spe.parent,
-                    # moose.element(spe.parent).parent
-                    enzname = enz.name
-                    enzPool = (enz.parent).name
-                    sName = convertSpecialChar(
-                        enzPool + "_" + enzname + "_" + sName)
-
-            #s1.setName(sName)
-            s1.setName(str(idBeginWith(convertSpecialCharshot(spe.name))))
-            # s1.setInitialAmount(spe.nInit)
-            s1.setInitialConcentration(spe.concInit)
-            s1.setCompartment(compt)
-            #  Setting BoundaryCondition and constant as per this rule for BufPool
-            #  -constanst  -boundaryCondition  -has assignment/rate Rule  -can be part of sub/prd
-            #   false           true              yes                       yes
-            #   true            true               no                       yes
-            if spe.className == "BufPool" or spe.className == "ZombieBufPool":
-                # BoundaryCondition is made for buff pool
-                s1.setBoundaryCondition(True)
-
-                if moose.exists(spe.path + '/func'):
-                    bpf = moose.element(spe.path)
-                    for fp in bpf.children:
-                        if fp.className == "Function" or fp.className == "ZombieFunction":
-                            if len(moose.element(
-                                    fp.path + '/x').neighbors["input"]) > 0:
-                                s1.setConstant(False)
-                            else:
-                                # if function exist but sumtotal object doesn't
-                                # exist
-                                spe_constTrue.append(spename)
-                                s1.setConstant(True)
-                else:
-                    spe_constTrue.append(spename)
-                    s1.setConstant(True)
+    for spe in moose.wildcardFind(modelpath + '/##[0][ISA=PoolBase]'):
+        #Eliminating xfer molecules writting
+        if not re.search("_xfer_",spe.name):
+            
+            sName = convertSpecialChar(spe.name)
+            comptVec = findCompartment(spe)
+            speciannoexist = False
+            
+            if not isinstance(moose.element(comptVec), moose.ChemCompt):
+                return -2
             else:
-                # if not bufpool then Pool, then
-                s1.setBoundaryCondition(False)
-                s1.setConstant(False)
-            s1.setUnits("substance")
-            s1.setHasOnlySubstanceUnits(False)
-            if moose.exists(spe.path + '/info'):
-                Anno = moose.Annotator(spe.path + '/info')
-                if Anno.notes != "":
-                    cleanNotesS = convertNotesSpecialChar(Anno.notes)
-                    notesStringS = "<body xmlns=\"http://www.w3.org/1999/xhtml\">\n \t \t" + \
-                        cleanNotesS + "\n\t </body>"
-                    s1.setNotes(notesStringS)
+                compt = comptVec.name + "_" + \
+                    str(comptVec.getId().value) + "_" + \
+                    str(comptVec.getDataIndex()) + "_"
+                s1 = cremodel_.createSpecies()
+                spename = sName + "_" + \
+                    str(spe.getId().value) + "_" + str(spe.getDataIndex()) + "_"
+                spename = str(idBeginWith(spename))
+                s1.setId(spename)
+
+                if spename.find(
+                        "cplx") != -1 and isinstance(moose.element(spe.parent), moose.EnzBase):
+                    enz = spe.parent
+                    if (moose.element(enz.parent), moose.PoolBase):
+                        # print " found a cplx name ",spe.parent,
+                        # moose.element(spe.parent).parent
+                        enzname = enz.name
+                        enzPool = (enz.parent).name
+                        sName = convertSpecialChar(
+                            enzPool + "_" + enzname + "_" + sName)
+
+                #s1.setName(sName)
+                s1.setName(str(idBeginWith(convertSpecialCharshot(spe.name))))
+                # s1.setInitialAmount(spe.nInit)
+                s1.setInitialConcentration(spe.concInit)
+                s1.setCompartment(compt)
+                #  Setting BoundaryCondition and constant as per this rule for BufPool
+                #  -constanst  -boundaryCondition  -has assignment/rate Rule  -can be part of sub/prd
+                #   false           true              yes                       yes
+                #   true            true               no                       yes
+                if spe.className == "BufPool" or spe.className == "ZombieBufPool":
+                    # BoundaryCondition is made for buff pool
+                    s1.setBoundaryCondition(True)
+
+                    if moose.exists(spe.path + '/func'):
+                        bpf = moose.element(spe.path)
+                        for fp in bpf.children:
+                            if fp.className == "Function" or fp.className == "ZombieFunction":
+                                if len(moose.element(
+                                        fp.path + '/x').neighbors["input"]) > 0:
+                                    s1.setConstant(False)
+                                else:
+                                    # if function exist but sumtotal object doesn't
+                                    # exist
+                                    spe_constTrue.append(spename)
+                                    s1.setConstant(True)
+                    else:
+                        spe_constTrue.append(spename)
+                        s1.setConstant(True)
+                else:
+                    # if not bufpool then Pool, then
+                    s1.setBoundaryCondition(False)
+                    s1.setConstant(False)
+                s1.setUnits("substance")
+                s1.setHasOnlySubstanceUnits(False)
+                if moose.exists(spe.path + '/info'):
+                    Anno = moose.Annotator(spe.path + '/info')
+                    if Anno.notes != "":
+                        cleanNotesS = convertNotesSpecialChar(Anno.notes)
+                        notesStringS = "<body xmlns=\"http://www.w3.org/1999/xhtml\">\n \t \t" + \
+                            cleanNotesS + "\n\t </body>"
+                        s1.setNotes(notesStringS)
 
 
-                element = moose.element(spe)
-                ele = getGroupinfo(element)
-                if element.className == "Neutral" or Anno.color or Anno.textColor or sceneitems or Anno.x or Anno.y:
-                    speciannoexist = True
-                if speciannoexist:
+                    element = moose.element(spe)
+                    ele = getGroupinfo(element)
+                    
                     speciAnno = "<moose:ModelAnnotation>\n"
                     if ele.className == "Neutral":
                         #speciAnno = speciAnno + "<moose:Group>" + ele.name + "</moose:Group>\n"
@@ -969,6 +1034,8 @@ def writeSpecies(modelpath, cremodel_, sbmlDoc, sceneitems,speGroup):
                     if Anno.textColor:
                         speciAnno = speciAnno + "<moose:textColor>" + \
                             Anno.textColor + "</moose:textColor>\n"
+                    speciAnno = speciAnno + "<moose:diffConstant>" + str(spe.diffConst) + "</moose:diffConstant>\n"
+                    speciAnno = speciAnno + "<moose:motorConstant>" + str(spe.motorConst)+ "</moose:motorConstant>\n" 
                     speciAnno = speciAnno + "</moose:ModelAnnotation>"
                     s1.setAnnotation(speciAnno)
     return True
@@ -976,40 +1043,101 @@ def writeSpecies(modelpath, cremodel_, sbmlDoc, sceneitems,speGroup):
 
 def writeCompt(modelpath, cremodel_):
     # getting all the compartments
-    compts = moose.wildcardFind(modelpath + '/##[ISA=ChemCompt]')
+    compts = moose.wildcardFind(modelpath + '/##[0][ISA=ChemCompt]')
     groupInfo = {}
+    comptID_sbml = {}
     for compt in compts:
+        comptAnno = ""
         comptName = convertSpecialChar(compt.name)
         # converting m3 to litre
+        createCompt = True
         size = compt.volume * pow(10, 3)
         ndim = compt.numDimensions
-        c1 = cremodel_.createCompartment()
-        c1.setId(str(idBeginWith(comptName +
-                                 "_" +
-                                 str(compt.getId().value) +
-                                 "_" +
-                                 str(compt.getDataIndex()) +
-                                 "_")))
-        c1.setName(comptName)
-        c1.setConstant(True)
-        c1.setSize(size)
-        c1.setSpatialDimensions(ndim)
-        c1.setUnits('volume')
-        #For each compartment get groups information along
-        for grp in moose.wildcardFind(compt.path+'/##[TYPE=Neutral]'):
-            grp_cmpt = findGroup_compt(grp.parent)
-            try:
-                value = groupInfo[moose.element(grp)]
-            except KeyError:
-                # Grp is not present
-                groupInfo[moose.element(grp)] = []
-
+        csetId = (str(idBeginWith(comptName +
+                                "_" +
+                                str(compt.getId().value) +
+                                "_" +
+                                str(compt.getDataIndex()) +
+                                "_")))
+        comptID_sbml[compt] = csetId
+        if isinstance(compt,moose.EndoMesh):
+            if comptID_sbml.get(compt.surround) == None:
+                createCompt = False
+                return False,groupInfo,"Outer compartment need to be specified for EndoMesh "
+                #return " EndoMesh need to outer compartment to be specified "
+            else:
+                comptAnno = "<moose:CompartmentAnnotation><moose:Mesh>" + \
+                                    str(compt.className) + "</moose:Mesh>\n" + \
+                                    "<moose:surround>" + \
+                                    str(comptID_sbml[compt.surround])+ "</moose:surround>\n" + \
+                                    "<moose:isMembraneBound>" + \
+                                    str(compt.isMembraneBound)+ "</moose:isMembraneBound>\n" 
+                if moose.exists(compt.path+'/info'):
+                    if moose.element(compt.path+'/info').notes != "":
+                        comptAnno = comptAnno + "<moose:Notes>" \
+                        + moose.element(compt.path+'/info').notes + "</moose:Notes>"
+                comptAnno = comptAnno+ "</moose:CompartmentAnnotation>"
+        elif isinstance (compt,moose.CylMesh) :
+            size = (compt.volume/compt.numDiffCompts)*pow(10,3)
+            comptAnno = "<moose:CompartmentAnnotation><moose:Mesh>" + \
+                                str(compt.className) + "</moose:Mesh>\n" + \
+                                "<moose:totLength>" + \
+                                str(compt.totLength)+ "</moose:totLength>\n" + \
+                                "<moose:diffLength>" + \
+                                str(compt.diffLength)+ "</moose:diffLength>\n" + \
+                                "<moose:isMembraneBound>" + \
+                                str(compt.isMembraneBound)+ "</moose:isMembraneBound>\n"
+            if moose.exists(compt.path+'/info'):
+                if moose.element(compt.path+'/info').notes != "":
+                    comptAnno = comptAnno + "<moose:Notes>" \
+                    + moose.element(compt.path+'/info').notes + "</moose:Notes>"
+            comptAnno = comptAnno+ "</moose:CompartmentAnnotation>"
+        else:
+            comptAnno = "<moose:CompartmentAnnotation><moose:Mesh>" + \
+                                str(compt.className) + "</moose:Mesh>\n" + \
+                                "<moose:isMembraneBound>" + \
+                                str(compt.isMembraneBound)+ "</moose:isMembraneBound>\n" 
+            if moose.exists(compt.path+'/info'):
+                if moose.element(compt.path+'/info').notes != "":
+                    comptAnno = comptAnno + "<moose:Notes>" \
+                    + moose.element(compt.path+'/info').notes + "</moose:Notes>"
+            comptAnno = comptAnno+ "</moose:CompartmentAnnotation>"
+        if createCompt:
+            c1 = cremodel_.createCompartment()
+            c1.setId(csetId)
+            c1.setName(comptName)
+            c1.setConstant(True)
+            c1.setSize(compt.volume*pow(10,3))
+            #c1.setSize(size)
+            if isinstance(compts,moose.EndoMesh):
+                c1.outside = comptID_sbml[compt.surround]
+                
+            if comptAnno:
+                c1.setAnnotation(comptAnno)
+            c1.setSpatialDimensions(ndim)
+            if ndim == 3:
+                c1.setUnits('volume')
+            elif ndim == 2:
+                c1.setUnits('area')
+            elif ndim == 1:
+                c1.setUnits('metre')
+            
+            #For each compartment get groups information along
+            for grp in moose.wildcardFind(compt.path+'/##[0][TYPE=Neutral]'):
+                grp_cmpt = findGroup_compt(grp.parent)
+                try:
+                    value = groupInfo[moose.element(grp)]
+                except KeyError:
+                    # Grp is not present
+                    groupInfo[moose.element(grp)] = []
+        
 
     if compts:
-        return True,groupInfo
+        return True,groupInfo,""
     else:
-        return False,groupInfo
+        return False,groupInfo,""
 # write Simulation runtime,simdt,plotdt
+
 def writeSimulationAnnotation(modelpath):
     modelAnno = ""
     plots = ""
@@ -1026,7 +1154,8 @@ def writeSimulationAnnotation(modelpath):
         modelAnno = modelAnno + "<moose:plotdt> " + \
             str(mooseclock.dts[18]) + " </moose:plotdt>\n"
         plots = ""
-        graphs = moose.wildcardFind(modelpath + "/##[TYPE=Table2]")
+        graphs = moose.wildcardFind(modelpath + "/##[0][TYPE=Table2]")
+        
         for gphs in range(0, len(graphs)):
             gpath = graphs[gphs].neighbors['requestOut']
             if len(gpath) != 0:
@@ -1034,7 +1163,9 @@ def writeSimulationAnnotation(modelpath):
                 ori = q.path
                 name = convertSpecialChar(q.name)
                 graphSpefound = False
-                while not(isinstance(moose.element(q), moose.CubeMesh)):
+                
+                while not(isinstance(moose.element(q), moose.CubeMesh) or isinstance(moose.element(q),moose.CylMesh) \
+                    or    isinstance(moose.element(q), moose.EndoMesh) or isinstance(moose.element(q),moose.NeuroMesh)):
                     q = q.parent
                     graphSpefound = True
                 if graphSpefound:
@@ -1045,16 +1176,12 @@ def writeSimulationAnnotation(modelpath):
                     else:
                         plots = plots + "; "+ori[ori.find(q.name)-1:len(ori)]
                         #plots = plots + "; /" + q.name + '/' + name
+                
         if plots != " ":
             modelAnno = modelAnno + "<moose:plots> " + plots + "</moose:plots>\n"
         modelAnno = modelAnno + "</moose:ModelAnnotation>"
+        
     return modelAnno
-
-def xyPosition(objInfo,xory):
-    try:
-        return(float(moose.element(objInfo).getField(xory)))
-    except ValueError:
-        return (float(0))
 
 def recalculatecoordinates(modelpath, mObjlist,xcord,ycord):
     positionInfoExist = not(len(np.nonzero(xcord)[0]) == 0 \
@@ -1071,7 +1198,7 @@ def recalculatecoordinates(modelpath, mObjlist,xcord,ycord):
             objInfo = merts.path+'/info'
             if moose.exists(objInfo):
                 Ix = defaultsceneWidth * ((xyPosition(objInfo,'x')-xmin)/(xmax-xmin))
-                Iy = defaultsceneHeight * ((ymin-xyPosition(objInfo,'y'))/(ymax-ymin))
+                Iy = defaultsceneHeight * ((xyPosition(objInfo,'y')-ymin)/(ymax-ymin))
                 moose.element(objInfo).x = Ix
                 moose.element(objInfo).y = Iy
    

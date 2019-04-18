@@ -179,7 +179,7 @@ class NetworkML():
             model_filenames = (cellname+'.xml', cellname+'.morph.xml')
             success = False
             for model_filename in model_filenames:
-                model_path = find_first_file(model_filename,self.model_dir)
+                model_path = find_first_file(model_filename, self.model_dir)
                 if model_path is not None:
                     cellDict = mmlR.readMorphMLFromFile(model_path, self.params)
                     success = True
@@ -267,7 +267,7 @@ class NetworkML():
                 else:
                     raise IOError(
                         'For mechanism {0}: files {1} not found under {2}.'.format(
-                            mechanismname, model_filename, self.model_dir
+                            syn_name, model_filename, self.model_dir
                         )
                     )
             weight = float(syn_props.attrib['weight'])
@@ -378,7 +378,7 @@ class NetworkML():
                 else:
                     if not moose.exists(pre_path+'/'+syn_name+'_spikegen'):
                         ## create new spikegen
-                        spikegen = moose.SpikeGen(pre_path+'/'+syn_name+'_spikegen')
+                        spikegen = moose.element(pre_path+'/'+syn_name+'_spikegen')
                         ## connect the compartment Vm to the spikegen
                         moose.connect(precomp,"VmOut",spikegen,"Vm")
                         ## spikegens for different synapse_types can have different thresholds

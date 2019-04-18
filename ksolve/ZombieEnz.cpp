@@ -6,12 +6,11 @@
 ** GNU Lesser General Public License version 2.1
 ** See the file COPYING.LIB for the full notice.
 **********************************************************************/
-#include "header.h"
-
-#include "lookupVolumeFromMesh.h"
+#include "../basecode/header.h"
+#include "../kinetics/lookupVolumeFromMesh.h"
 #include "RateTerm.h"
 #include "FuncTerm.h"
-#include "SparseMatrix.h"
+#include "../basecode/SparseMatrix.h"
 #include "KinSparseMatrix.h"
 #include "VoxelPoolsBase.h"
 #include "../mesh/VoxelJunction.h"
@@ -19,9 +18,11 @@
 #include "ZombiePoolInterface.h"
 #include "Stoich.h"
 
-#include "EnzBase.h"
-#include "CplxEnzBase.h"
+#include "../kinetics/EnzBase.h"
+#include "../kinetics/CplxEnzBase.h"
 #include "ZombieEnz.h"
+
+#define EPSILON 1e-15
 
 const Cinfo* ZombieEnz::initCinfo()
 {
@@ -118,8 +119,11 @@ void ZombieEnz::vSetKcat( const Eref& e, double v )
 	double k2 = getK2( e );
 	double k3 = getKcat( e );
 	double ratio = 4.0;
-	if ( k3 > 1e-10 )
+	if ( v < EPSILON )
+		v = EPSILON;
+	if ( k3 > EPSILON ) {
 		ratio = k2/k3;
+	}
 	double Km = (k2 + k3) / concK1_;
 	concK1_ = v * (1.0 + ratio) / Km;
 

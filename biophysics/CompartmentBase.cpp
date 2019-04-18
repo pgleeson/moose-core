@@ -7,9 +7,8 @@
 ** See the file COPYING.LIB for the full notice.
 **********************************************************************/
 
-#include "header.h"
-#include "ElementValueFinfo.h"
-#include "../randnum/randnum.h"
+#include "../basecode/header.h"
+#include "../basecode/ElementValueFinfo.h"
 #include "CompartmentBase.h"
 #include "CompartmentDataHolder.h"
 #include "../shell/Wildcard.h"

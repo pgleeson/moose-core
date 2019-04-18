@@ -29,9 +29,7 @@ import time
 logging.basicConfig(
         level=logging.DEBUG,
         format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-        datefmt='%m-%d %H:%M',
-        filename='tests.log',
-        filemode='w'
+        datefmt='%m-%d %H:%M'
         )
 console = logging.StreamHandler()
 console.setLevel(logging.WARNING)
@@ -87,6 +85,9 @@ class Command(object):
             self.process.terminate()
             thread.join()
 
+        if self.process.stderr is not None:
+            _logger.warn( '%s' % self.process.stderr.read() )
+
         return self.process.returncode
 
 def init_test_dir( ):
@@ -116,7 +117,7 @@ def run_test( index, testfile, timeout,  **kwargs):
     """
     global test_status_
     global total_
-    pyExec = os.environ.get( 'PYTHON_EXECUTABLE', '/usr/bin/python' )
+    pyExec = os.environ.get( 'PYTHON_EXECUTABLE', sys.executable )
     cmd = Command( [ pyExec, testfile ] )
 
     ti = time.time( )
@@ -179,7 +180,7 @@ def test_all( timeout, **kwargs ):
     _logger.info( 'Total %d valid tests found' % len( scripts ) )
     total_ = len( scripts )
     for i, s in enumerate( scripts ):
-        _logger.info( 'Running test : %s' % s )
+        _logger.info( 'Running test (timeout=%s) : %s' % (timeout,s))
         run_test(i, s, timeout, **kwargs )
 
 

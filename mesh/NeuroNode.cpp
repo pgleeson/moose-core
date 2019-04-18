@@ -7,8 +7,8 @@
 ** See the file COPYING.LIB for the full notice.
 **********************************************************************/
 
-#include "header.h"
-#include "SparseMatrix.h"
+#include "../basecode/header.h"
+#include "../basecode/SparseMatrix.h"
 #include "Boundary.h"
 #include "MeshEntry.h"
 #include "VoxelJunction.h"
@@ -533,6 +533,8 @@ void NeuroNode::buildSpinyTree(
 void NeuroNode::setParentAndChildren( unsigned int index, int dendParent,
 	vector< NeuroNode >& nodes, const unordered_map< Id, unsigned int >& dendMap )
 {
+	if (dendParent < 0 || static_cast< unsigned int >(dendParent) >= nodes.size() )
+		return;	
 	parent_ = dendParent;
 	const unordered_map< Id, unsigned int >::const_iterator dendLookup =
 			dendMap.find( nodes[dendParent].elecCompt_ );

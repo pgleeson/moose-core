@@ -20,20 +20,32 @@
 set -o nounset                              # Treat unset variables as an error
 set -e
 
+# NOTE: On travis, don't enable -j`nproc` option. It may not compile properly.
+
 (
+    # Make sure not to pick up python from /opt.
+    PATH=/usr/local/bin:/usr/bin:$PATH
+
+    # Get pylint
+    python -m pip install pylint --user
+    python -m pip install python-libsbml --user
+    python -m pip install pyneuroml --user
+
     mkdir -p _GSL_BUILD && cd _GSL_BUILD \
-        && cmake -DQUIET_MODE=ON -DDEBUG=ON \
+        && cmake -DDEBUG=ON \
         -DPYTHON_EXECUTABLE=`which python` ..
-    make && ctest --output-on-failure
+    make pylint -j3
+    make && ctest --output-on-failure -E ".*socket_streamer.*"
+
     cd .. # Now with boost.
     mkdir -p _BOOST_BUILD && cd _BOOST_BUILD \
-        && cmake -DWITH_BOOST=ON -DDEBUG=ON \
+        && cmake -DWITH_BOOST_ODE=ON -DDEBUG=ON \
         -DPYTHON_EXECUTABLE=`which python` ..
-    make && ctest --output-on-failure
-    cd ..
 
-    # Now test the brew formula
-    cd ~
-    brew tap BhallaLab/moose
-    brew install moose
+    make && ctest --output-on-failure -E ".*socket_streamer.*"
+    cd ..
+    set +e
+
 )
+set +e
+

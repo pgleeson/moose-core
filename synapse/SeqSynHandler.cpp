@@ -8,14 +8,14 @@
 **********************************************************************/
 
 #include <queue>
-#include "global.h"
-#include "header.h"
+#include "../basecode/global.h"
+#include "../basecode/header.h"
 #include "Synapse.h"
 #include "SynEvent.h"
 #include "SynHandlerBase.h"
 #include "RollingMatrix.h"
 #include "SeqSynHandler.h"
-#include "muParser.h"
+#include "../external/muparser/include/muParser.h"
 
 const Cinfo* SeqSynHandler::initCinfo()
 {
@@ -511,6 +511,13 @@ void SeqSynHandler::addSpike(unsigned int index, double time, double weight)
 	//
 	// Here we reorder the entries in latestSpikes by the synapse order.
 	latestSpikes_[ synapseOrder_[index] ] += weight;
+}
+
+double SeqSynHandler::getTopSpike( unsigned int index ) const
+{
+	if ( events_.empty() )
+		return 0.0;
+	return events_.top().time;
 }
 
 unsigned int SeqSynHandler::addSynapse()

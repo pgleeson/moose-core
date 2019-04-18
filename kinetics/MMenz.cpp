@@ -7,8 +7,8 @@
 ** See the file COPYING.LIB for the full notice.
 **********************************************************************/
 
-#include "header.h"
-#include "ElementValueFinfo.h"
+#include "../basecode/header.h"
+#include "../basecode/ElementValueFinfo.h"
 #include "lookupVolumeFromMesh.h"
 #include "EnzBase.h"
 #include "MMenz.h"
@@ -133,6 +133,8 @@ double MMenz::vGetNumKm( const Eref& enz ) const
 
 void MMenz::vSetKcat( const Eref& e, double v )
 {
+	if ( v < EPSILON )
+		v = EPSILON;
 	kcat_ = v;
 }
 

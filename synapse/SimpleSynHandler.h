@@ -10,6 +10,8 @@
 #ifndef _SIMPLE_SYN_HANDLER_H
 #define _SIMPLE_SYN_HANDLER_H
 
+#include <queue>
+
 /*
 class SynEvent
 {
@@ -61,6 +63,7 @@ class SimpleSynHandler: public SynHandlerBase
 		unsigned int addSynapse();
 		void dropSynapse( unsigned int droppedSynNumber );
 		void addSpike( unsigned int index, double time, double weight );
+		double getTopSpike( unsigned int index ) const;
 		////////////////////////////////////////////////////////////////
 		static const Cinfo* initCinfo();
 	private:

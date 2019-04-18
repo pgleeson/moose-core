@@ -1,25 +1,37 @@
-set(CMAKE_LEGACY_CYGWIN_WIN32 0)
 cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
-project(MOOSE)
+project(pymoose)
 
-if(COMMAND cmake_policy)
-    cmake_policy(SET CMP0003 NEW)
-    cmake_policy(SET CMP0004 NEW)
-    if(POLICY CMP0050)
-        cmake_policy(SET CMP0050 OLD)
-    endif(POLICY CMP0050)
-endif(COMMAND cmake_policy)
-
-
+set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake_modules")
 include(CheckCXXCompiler.cmake)
 include(CheckIncludeFileCXX)
 include(FindPkgConfig)
 
+# getgit revision number
+find_program( GIT_EXEC git )
+if(GIT_EXEC)
+    execute_process(
+        COMMAND ${GIT_EXEC} rev-parse --short HEAD
+        OUTPUT_VARIABLE GIT_HEAD
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+else(GIT_EXEC)
+    set(GIT_HEAD 'HEAD')
+    message(STATUS "Couldn't fetch version from git repo" )
+endif()
+
 # If from command line, version info is not passed, use the git to generate a
 # version file. If GIT fails, use the previous known version.
-set(MOOSE_VERSION 3.2-git)
-add_definitions( -DMOOSE_VERSION="${MOOSE_VERSION}")
-message( STATUS "MOOSE Version ${MOOSE_VERSION}" )
+if(NOT VERSION_MOOSE)
+    set(VERSION_MOOSE "3.2.0-${GIT_HEAD}")
+endif()
+
+add_definitions( -DMOOSE_VERSION="${VERSION_MOOSE}")
+message( STATUS "MOOSE Version ${VERSION_MOOSE}" )
+
+# Write VERSION to a file VERSION so that setup.cmake.py can use it.
+set(VERSION_FILE ${CMAKE_CURRENT_SOURCE_DIR}/python/VERSION)
+file(WRITE ${VERSION_FILE} ${VERSION_MOOSE} )
+message(STATUS "| Writing ${VERSION_MOOSE} to ${VERSION_FILE}" )
 
 # This snippet is from LLVM project.
 # Sanity check our source directory to make sure that we are not trying to
@@ -54,35 +66,26 @@ add_custom_target(uninstall
 # This is for testing purpose.
 link_directories(${CMAKE_CURRENT_BINARY_DIR})
 
-################################# OS Specific ##################################
-message(STATUS "Operating system: ${CMAKE_SYSTEM_NAME}")
-if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    CMAKE_POLICY(SET CMP0042 NEW)
-    set(MACOSX TRUE)
-else()
-    set(MACOSX FALSE)
-endif()
-
 ################################ CMAKE OPTIONS ##################################
-option(DEBUG "Build with debug support" OFF)
-option(GPROF "Build for profiling using gprof" OFF)
-option(ENABLE_UNIT_TESTS "Enable unit tests (DEBUG should also be ON)" OFF)
-option(WITH_MPI  "Enable Openmpi support" OFF)
-option(WITH_BOOST "Use boost library instead of GSL" OFF)
-option(WITH_GSL  "Use gsl-library. Alternative is WITH_BOOST" ON)
-option(PARALLELIZED_SOLVERS "Use parallel version of GSOLVE. (alpha)" OFF )
-option(PARALLELIZED_CLOCK "High level parallelization of moose::Clock (alpha)" OFF )
+option(WITH_NSDF            "Enable NSDF support. Requires hdf5" OFF )
 
-################################# CMKAE MACROS #################################
+option(DEBUG                "Build with debug support" OFF)
+option(GPROF                "Build for profiling using gprof" OFF)
+option(ENABLE_UNIT_TESTS    "Enable unit tests (DEBUG should also be ON)" OFF)
+option(WITH_MPI             "Enable Openmpi support" OFF)
+option(WITH_BOOST           "Enable boost. Prefer boost over stl" OFF)
+option(WITH_BOOST_ODE       "Use boost library ode2 library instead of GSL" OFF)
+option(WITH_GSL             "Use gsl-library. Alternative is WITH_BOOST" ON)
+option(PARALLELIZED_CLOCK   "High level parallelization of moose::Clock (alpha)" OFF )
+option(USE_PRIVATE_RNG      "Stochastic Objects use their private RNG" ON)
 
-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules")
 
 ############################ BUILD CONFIGURATION #################################
 
-# Default macros
+# Default definitions.
 add_definitions(-DUSE_GENESIS_PARSER)
 
-if(DEBUG)
+if(DEBUG OR "${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     message(STATUS "Building for Debug/Unit testing")
     add_definitions(-DDO_UNIT_TESTS)
     set(CMAKE_BUILD_TYPE Debug)
@@ -93,23 +96,26 @@ elseif(ENABLE_UNIT_TESTS)
 else()
     message(STATUS "Building for Release/No unit tests.")
     set(CMAKE_BUILD_TYPE Release)
-    add_definitions(-UDO_UNIT_TESTS -DQUIET_MODE -O3)
+		add_definitions(-UDO_UNIT_TESTS -O3 -DDISABLE_DEBUG)
+
+    # DO NOT Treat all warnings as errors. With some compilers and newer versions
+    # this often causes headache.
+    # add_definitions(-Werror)
 endif()
 
-if(GPROF AND DEBUG)
+if(GPROF AND "${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     message(STATUS "Compiling with profiling with gprof")
     add_definitions(-pg)
     set(CMAKE_EXE_LINKER_FLAGS_DEBUG "-pg")
 endif()
 
+find_package(Threads)
+
 
 ################################### TARGETS ####################################
 
 add_library(libmoose SHARED basecode/main.cpp)
-
-if(DEBUG)
-    add_executable(moose.bin basecode/main.cpp)
-endif( )
+add_executable(moose.bin basecode/main.cpp)
 
 ################################### SETUP BUILD ################################
 
@@ -117,8 +123,14 @@ endif( )
 include_directories( ${CMAKE_CURRENT_SOURCE_DIR} )
 
 if(WITH_BOOST)
-    set(WITH_GSL OFF)
+    set(WITH_BOOST_ODE ON)
+    set(WITH_GSL       OFF)
 endif(WITH_BOOST)
+
+# If using BOOST ODE2 library to solve ODE system, then don't use GSL.
+if(WITH_BOOST_ODE)
+    set(WITH_GSL OFF)
+endif(WITH_BOOST_ODE)
 
 include_directories(msg basecode)
 
@@ -130,6 +142,12 @@ set(STATIC_LIBRARIES "" )
 # Collect all shared libraries here.
 set(SYSTEM_SHARED_LIBS ${LibXML2_LIBRARIES})
 
+# BOOST ode library performs better than GSL and ideally should be made default.
+# Making boost default means that we get rid of gsl. Boost does not have a very
+# good matrix library; it has ublas which is not well maintained and emit a lot
+# of warning during compilation. Nonetheless, WITH_BOOST_ODE works fine and
+# produce results quicker than GSL. Both boost ode and ublas are in moose source
+# tree ./external/odeint-v2 and ./external/boost-numeric-bindings
 if(WITH_GSL)
     find_package(GSL 1.16 REQUIRED)
     if(NOT GSL_FOUND)
@@ -153,89 +171,14 @@ if(WITH_GSL)
     # GSL is also used in RNG (whenever applicable), therefore include paths are
     # top level.
     include_directories( ${GSL_INCLUDE_DIRS} )
-elseif(WITH_BOOST)
-    find_package(Boost 1.44 COMPONENTS system filesystem random REQUIRED)
+elseif(WITH_BOOST_ODE)
+    find_package(Boost 1.44 REQUIRED)
     find_package( LAPACK REQUIRED )
-    add_definitions( -DUSE_BOOST -UUSE_GSL )
-    include_directories( ${Boost_INCLUDE_DIRS} )
-    check_include_file_cxx(
-        ${Boost_INCLUDE_DIRS}/boost/random/random_device.hpp
-        BOOST_RANDOM_DEVICE_EXISTS
-        )
-    if(BOOST_RANDOM_DEVICE_EXISTS)
-        add_definitions(-DBOOST_RANDOM_DEVICE_EXISTS)
-    endif(BOOST_RANDOM_DEVICE_EXISTS)
 endif()
 
-
-find_package(HDF5 COMPONENTS CXX HL)
-if(NOT HDF5_FOUND)
-    message(
-        "==================================================================\n"
-        " HDF5 not found. Disabling support. Required for nsdf. \n\n"
-        " If you need hdf5 support, please install hdf5-dev or hdf5-devel\n"
-        " package or equivalent.\n\n"
-        "     $ sudo apt-get install libhdf5-dev \n"
-        "     $ sudo yum install libhdf5-devel \n"
-        "     $ brew install hdf5 \n\n"
-        " Otherwise, continue with 'make' and 'make install' \n"
-        " If you install hdf5 to non-standard path, export environment \n"
-        " variable HDF5_ROOT to the location. Rerun cmake \n"
-        "================================================================ \n"
-        )
-endif(NOT HDF5_FOUND)
-
-if(HDF5_FOUND)
-    include_directories( ${HDF5_INCLUDE_DIRS} )
-    add_definitions( -DUSE_HDF5 )
-    if(HDF5_USE_STATIC_LIBRARIES)
-	message(STATUS "Finding static HDF5 libraries in $ENV{HDF5_ROOT}")
-        find_library(HDF5_CXX_LIBRARIES NAMES libhdf5.a
-            PATHS $ENV{HDF5_ROOT}/lib $ENV{HDF5_ROOT}/lib64
-            )
-        find_library(HDF5_HL_LIBRARIES NAMES libhdf5_hl.a
-            PATHS $ENV{HDF5_ROOT}/lib $ENV{HDF5_ROOT}/lib64
-            )
-        set(HDF5_LIBRARIES ${HDF5_CXX_LIBRARIES} ${HDF5_HL_LIBRARIES})
-    endif()
-
-
-    # Make sure, HDF5_HL_LIBRARIES are set. The COMPONENTS in find_package may
-    # or may not work. See BhallaLab/moose-core#163.
-    if(NOT HDF5_HL_LIBRARIES)
-        set(HDF5_HL_LIBRARIES ${HDF5_HL_LIBRARIES})
-    endif(NOT HDF5_HL_LIBRARIES)
-    list(APPEND HDF5_LIBRARIES ${HDF5_HL_LIBRARIES})
-
-    message(STATUS "MOOSE will use following HDF5 ${HDF5_LIBRARIES}" )
-    foreach(HDF5_LIB ${HDF5_LIBRARIES})
-        if(HDF5_LIB)
-            get_filename_component( HDF5_LIB_EXT ${HDF5_LIB} EXT )
-            if(HDF5_LIB_EXT)
-                if(${HDF5_LIB_EXT} STREQUAL ".a")
-                    list(APPEND STATIC_LIBRARIES ${HDF5_LIB} )
-                else( )
-                    list(APPEND SYSTEM_SHARED_LIBS ${HDF5_LIB} )
-                endif( )
-            endif()
-        endif( )
-    endforeach( )
-else( HDF5_FOUND )
-    message(STATUS "HDF5 is not found" )
-endif( HDF5_FOUND )
-
-# This is a fix for new HDF5 package on Debian/Ubuntu which installs hdf5
-# headers in non-standard path. issue #80.
-if(HDF5_LIBRARY_DIRS)
-    set_target_properties( libmoose PROPERTIES LINK_FLAGS "-L${HDF5_LIBRARY_DIRS}" )
-endif()
-
-find_package(Termcap)
-find_package(Readline)
-
-if(READLINE_FOUND AND TERMCAP_FOUND)
-    add_definitions(-DUSE_READLINE)
-    include_directories(${Readline_INCLUDE_DIR})
+# if boost ode is being used, don't use GSL.
+if(WITH_BOOST_ODE)
+    add_definitions(-DUSE_BOOST_ODE -UUSE_GSL)
 endif()
 
 # Openmpi
@@ -254,28 +197,35 @@ if(WITH_MPI)
     endif()
 endif(WITH_MPI)
 
-if(WITH_BOOST)
+if(WITH_BOOST_ODE)
     list(APPEND SYSTEM_SHARED_LIBS ${LAPACK_LIBRARIES})
     list(APPEND SYSTEM_SHARED_LIBS ${Boost_LIBRARIES})
-endif(WITH_BOOST)
+endif(WITH_BOOST_ODE)
+
+list(APPEND SYSTEM_SHARED_LIBS ${CMAKE_THREAD_LIBS_INIT})
 
 # These libraries could be static of dynamic. We need to discrimate between
 # these two types because of --whole-archive option. See
 # BhallaLab/moose-core#66,
 if(WITH_GSL)
-    message(STATUS "Using gsl libraries: ${GSL_LIBRARIES}")
-    foreach(GSL_LIB ${GSL_LIBRARIES} )
-        if(GSL_LIB)
-            get_filename_component( GSL_LIB_EXT ${GSL_LIB} EXT )
-            if(GSL_LIB_EXT)
-                if(GSL_LIB_EXT STREQUAL ".a" )
-                    list(APPEND STATIC_LIBRARIES ${GSL_LIB})
-                else()
-                    list(APPEND SYSTEM_SHARED_LIBS ${GSL_LIB})
-                endif( )
-            endif( )
-        endif( )
-    endforeach( )
+    if(GSL_STATIC_LIBRARIES)
+       message( STATUS "Using static libraries ${GSL_STATIC_LIBRARIES}" )
+       list(APPEND STATIC_LIBRARIES ${GSL_STATIC_LIBRARIES})
+    else( )
+       # message(DEBUG "Using gsl libraries: ${GSL_LIBRARIES}")
+       foreach(GSL_LIB ${GSL_LIBRARIES} )
+           if(GSL_LIB)
+               get_filename_component( GSL_LIB_EXT ${GSL_LIB} EXT )
+               if(GSL_LIB_EXT)
+                   if(GSL_LIB_EXT STREQUAL ".a" )
+                       list(APPEND STATIC_LIBRARIES ${GSL_LIB})
+                   else()
+                       list(APPEND SYSTEM_SHARED_LIBS ${GSL_LIB})
+                   endif( )
+               endif( )
+           endif( )
+       endforeach( )
+   endif( )
 endif()
 
 if(WITH_MPI)
@@ -284,15 +234,9 @@ if(WITH_MPI)
     endif()
 endif(WITH_MPI)
 
-pkg_check_modules(MUPARSER muparser)
-if(MUPARSER_FOUND)
-    message(STATUS "Using system muparser ${MUPARSER_VERSION}")
-    list(APPEND SYSTEM_SHARED_LIBS ${MUPARSER_LIBRARIES})
-else()
-    message(STATUS "Using private muparser")
-    add_subdirectory(external/muparser)
-    list(APPEND MOOSE_LIBRARIES muparser)
-endif()
+# Always use private version of muparser. We have some custom edits.
+add_subdirectory(external/muparser)
+list(APPEND MOOSE_LIBRARIES muparser)
 
 # Add subdirectroeis
 add_subdirectory(basecode)
@@ -321,7 +265,6 @@ list(APPEND MOOSE_LIBRARIES
     msg
     benchmarks
     shell
-    randnum
     scheduling
     moose_mpi
     biophysics
@@ -344,9 +287,18 @@ if(SYSTEM_SHARED_LIBS)
     list(REMOVE_DUPLICATES SYSTEM_SHARED_LIBS)
 endif( )
 
+# cmake --help-policy CMP0042. Also in pymoose/CMakeLists.txt
+# More details:
+# https://gitlab.kitware.com/cmake/community/wikis/doc/cmake/RPATH-handling
+# especially section 'Mac OS X and the RPATH'
+# Switching is OFF since all libraries are statically linked in module.
+if(APPLE)
+    set_target_properties( libmoose PROPERTIES MACOSX_RPATH OFF)
+endif(APPLE)
+
 # MAC linker does not understand many of gnu-ld options.
-message( STATUS "Shared libs: ${SYSTEM_SHARED_LIBS}")
-if(MACOSX)
+# message( DEBUG "Shared libs: ${SYSTEM_SHARED_LIBS}")
+if(APPLE)
     target_link_libraries(libmoose
         "-Wl,-all_load"
         ${MOOSE_LIBRARIES}
@@ -357,7 +309,7 @@ if(MACOSX)
         ${SYSTEM_SHARED_LIBS}
         ${CMAKE_DL_LIBS}
         )
-ELSE(MACOSX)
+else(APPLE)
     target_link_libraries(libmoose
         "-Wl,--whole-archive"
         ${MOOSE_LIBRARIES}
@@ -365,64 +317,98 @@ ELSE(MACOSX)
         "-Wl,--no-whole-archive"
         ${SYSTEM_SHARED_LIBS}
         )
-endif(MACOSX)
+endif(APPLE)
 
-if(DEBUG)
-    add_dependencies(moose.bin libmoose)
-    target_link_libraries(moose.bin moose ${CMAKE_DL_LIBS})
-    if( WITH_BOOST )
-        target_link_libraries( moose.bin ${Boost_LIBRARIES} )
-    endif( WITH_BOOST )
-endif()
+add_dependencies(moose.bin libmoose)
+target_link_libraries(moose.bin moose ${CMAKE_DL_LIBS})
+if( WITH_BOOST )
+    target_link_libraries( moose.bin ${Boost_LIBRARIES} )
+endif( WITH_BOOST )
+
 
 ######################### BUILD PYMOOSE ########################################
+# This target is built by pymoose/CMakeLists.txt file.
 add_subdirectory( pymoose )
 
-######################### INSTALL ##############################################
-
-if(DEBUG)
-    install(TARGETS moose.bin
-        DESTINATION bin
-        )
-
-    install(TARGETS libmoose
-        DESTINATION lib
-        )
-
-    install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/moose
-        DESTINATION bin
-        )
-endif( )
-
-# INSTALL python module.
-# This target is built by pymoose/CMakeLists.txt file. Using the --prefix option
 # always override debian default installation directory. It will be installed in
 # site-packages instead of dist-packages.
 # See https://bugs.launchpad.net/ubuntu/+source/python2.6/+bug/362570
 # HACK: Get platform information from python and use it to fix the layout.
-execute_process(
-    COMMAND ${PYTHON_EXECUTABLE} -mplatform OUTPUT_VARIABLE _platform_desc
+execute_process(COMMAND ${PYTHON_EXECUTABLE} -mplatform OUTPUT_VARIABLE _platform_desc)
+message(STATUS "Platform: ${_platform_desc}")
+
+# DISTUTILS_EXTRA_ARGS may come of top-level cmake script. On DEBIAN/UBUNTU, it
+# is most likely to be --install-layout=deb .
+set(EXTRA_ARGS "--prefix ${CMAKE_INSTALL_PREFIX} ${DISTUTILS_EXTRA_ARGS}")
+
+# On Debian/Ubuntu install using debian layout.
+# NOTE: Also create setup.cfg file which setup prefix and install-layout
+# suitable for DEBIAN systems.
+if(${_platform_desc} MATCHES ".*(Ubuntu|debian).*")
+    list(APPEND EXTRA_ARGS "--install-layout=deb")
+    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/python/setup.cfg
+         "[install]\nprefix=/usr\ninstall-layout=deb"
+       )
+endif()
+
+# Set PYMOOSE binary distribution build and install directories.
+# Target for creating bdist. This is handy for creating bdist for packaging.
+# Save the binary distribution (tar.gz) to PYMOOSE_BDIST_DIR.
+find_package(PythonInterp REQUIRED)
+if(NOT PYMOOSE_BDIST_DIR)
+    set(PYMOOSE_BDIST_DIR ${CMAKE_BINARY_DIR}/bdist)
+endif( )
+
+# If no one hsa set the PYMOOSE bdist installation directory, use default.
+if(NOT PYMOOSE_BDIST_INSTALL_DIR)
+    set(PYMOOSE_BDIST_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/pymoose_bdist_install)
+endif()
+file(MAKE_DIRECTORY ${PYMOOSE_BDIST_INSTALL_DIR})
+
+# We need a custom name for bdist; same on all platform.
+set(_platform "CMAKE" )
+set(PYMOOSE_BDIST_FILE ${PYMOOSE_BDIST_DIR}/pymoose-${VERSION_MOOSE}.${_platform}.tar.gz)
+message(STATUS "binary distribution file ${PYMOOSE_BDIST_FILE}")
+add_custom_target(bdist ALL DEPENDS  ${PYMOOSE_BDIST_FILE} )
+
+# Any command using setup.cmake.py must run in the same directory. Use option
+# `--relative` to prefix is aways fixed.
+add_custom_command( OUTPUT ${PYMOOSE_BDIST_FILE}
+    COMMAND ${PYTHON_EXECUTABLE} setup.cmake.py bdist_dumb -p ${_platform}
+        -d ${PYMOOSE_BDIST_DIR} --relative
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/python
+    COMMENT "bdist is saved to ${PYMOOSE_BDIST_DIR}"
+    VERBATIM
     )
-message( STATUS "Platform ${_platform_desc}" )
+add_custom_command(TARGET bdist POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E chdir ${PYMOOSE_BDIST_INSTALL_DIR} tar xf ${PYMOOSE_BDIST_FILE}
+    COMMENT "Unarchiving bdist file ${PYMOOSE_BDIST_FILE} to ${PYMOOSE_BDIST_INSTALL_DIR}"
+    VERBATIM
+    )
 
+# Copy python files from source to current binary directory. Make sure to call
+# this before building bdist.
+file(GLOB_RECURSE PYTHON_SRCS "${CMAKE_SOURCE_DIR}/python/*")
+add_custom_target(copy_pymoose DEPENDS ${PYTHON_SRCS}
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/python ${CMAKE_CURRENT_BINARY_DIR}/python
+    COMMENT "Copying required python files and other files to build directory"
+    VERBATIM
+    )
 
-set(EXTRA_ARGS "--prefix ${CMAKE_INSTALL_PREFIX}")
+add_dependencies( bdist copy_pymoose )
+add_dependencies( copy_pymoose _moose )
 
-## NOTE: Disable it here. It must be handled by moose repository CMakeLists.txt
-## which is used in created packages. For normal user, it should install in
-## site-packages.
-#if( ${_platform_desc} MATCHES ".*(Ubuntu|Debian).*" )
-#    list( APPEND EXTRA_ARGS "--install-layout=deb" )
-#endif( )
+######################### INSTALL ##############################################
 
-# If make is called with sudo, install in system directories. Otherwise use
-# --user to install in user home.
-install(CODE
-    "execute_process(
-        COMMAND ${PYTHON_EXECUTABLE} setup.cmake.py install ${EXTRA_ARGS}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/python
-        )"
-        )
+install(TARGETS moose.bin DESTINATION bin CONFIGURATIONS Debug)
+install(TARGETS libmoose DESTINATION lib CONFIGURATIONS Debug)
+
+# install pymoose bdist.
+install(DIRECTORY ${PYMOOSE_BDIST_INSTALL_DIR}/
+    DESTINATION ${CMAKE_INSTALL_PREFIX}
+    CONFIGURATIONS Release Debug
+    )
 
 # Print message to start build process
 if(${CMAKE_BUILD_TOOL} MATCHES "make")
@@ -435,21 +421,19 @@ if(${CMAKE_BUILD_TOOL} MATCHES "make")
 endif()
 
 
-
-
 ############################ CTEST ######################################
 include( CTest )
 # If CTEST_OUTPUT_ON_FAILURE environment variable is set, the output is printed
 # onto the console if a test fails.
 set(ENV{CTEST_OUTPUT_ON_FAILURE} ON)
 
-if(DEBUG)
+if(DEBUG OR "${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     # Run this test in debug mode. In Release mode, this does not do anything.
     set(MOOSE_BIN_LOCATION $<TARGET_FILE:moose.bin>)
     message(STATUS "Executable moose.bin will be at ${MOOSE_BIN_LOCATION}" )
 
     add_test(NAME moose.bin-raw-run COMMAND moose.bin -u -q)
-endif(DEBUG)
+endif()
 
 ## PyMOOSE tests.
 set(PYMOOSE_TEST_DIRECTORY ${CMAKE_SOURCE_DIR}/tests/python)
@@ -465,8 +449,30 @@ foreach( _test_script ${PY_TEST_SCRIPTS} )
         WORKING_DIRECTORY ${PYMOOSE_TEST_DIRECTORY}
         )
      set_tests_properties( ${_test_name}
-        PROPERTIES ENVIRONMENT "PYTHONPATH=${PROJECT_BINARY_DIR}/python"
+         PROPERTIES ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/python"
         )
+endforeach( )
+
+# add pylint target.
+set(PYSCRIPTS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/python )
+file(GLOB_RECURSE PY_SCRIPTS  "python/*.py")
+add_custom_target( pylint )
+foreach( _py_script ${PY_SCRIPTS} )
+    get_filename_component( _py_name ${_py_script} NAME_WE)
+    file( READ ${_py_script} pytext)
+    string(MD5 _md5 "${pytext}")
+    set(TGT_NAME "${_py_name}-${_md5}" )
+    set(PYLINT_OPTIONS --disable=no-member --disable=no-name-in-module
+            --disable=invalid-unary-operand-type
+            --disable=import-error
+            --disable=no-method-argument
+        )
+    add_custom_target( ${TGT_NAME}
+        COMMAND ${PYTHON_EXECUTABLE} -m pylint -E ${PYLINT_OPTIONS} ${_py_script}
+        COMMENT "Running pylint on ${_py_script}"
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        )
+    add_dependencies(pylint ${TGT_NAME} )
 endforeach( )
 
 ############################ CPACK ######################################

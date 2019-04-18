@@ -7,8 +7,8 @@
 ** See the file COPYING.LIB for the full notice.
 **********************************************************************/
 
-#include "header.h"
-#include "ElementValueFinfo.h"
+#include "../basecode/header.h"
+#include "../basecode/ElementValueFinfo.h"
 #include "lookupVolumeFromMesh.h"
 #include "EnzBase.h"
 
@@ -61,6 +61,12 @@ const Cinfo* EnzBase::initCinfo()
 			"Number of substrates in this MM reaction. Usually 1."
 			"Does not include the enzyme itself",
 			&EnzBase::getNumSub
+		);
+
+		static ReadOnlyElementValueFinfo< EnzBase, unsigned int > numPrd(
+			"numProducts",
+			"Number of products in this MM reaction. Usually 1.",
+			&EnzBase::getNumPrd
 		);
 
 
@@ -125,6 +131,7 @@ const Cinfo* EnzBase::initCinfo()
 		&numKm,	// ElementValue
 		&kcat,	// Value
 		&numSub,	// ReadOnlyElementValue
+		&numPrd,	// ReadOnlyElementValue
 		&enzDest,			// DestFinfo
 		&sub,				// SharedFinfo
 		&prd,				// SharedFinfo
@@ -255,6 +262,14 @@ unsigned int EnzBase::getNumSub( const Eref& e ) const
 {
 	const vector< MsgFuncBinding >* mfb =
 		e.element()->getMsgAndFunc( subOut()->getBindIndex() );
+	assert( mfb );
+	return ( mfb->size() );
+}
+
+unsigned int EnzBase::getNumPrd( const Eref& e ) const
+{
+	const vector< MsgFuncBinding >* mfb =
+		e.element()->getMsgAndFunc( prdOut()->getBindIndex() );
 	assert( mfb );
 	return ( mfb->size() );
 }

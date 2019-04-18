@@ -53,8 +53,14 @@
 
 import traceback
 import warnings
+import moose.utils as mu
 import numpy as np
-from scipy.optimize import curve_fit
+
+try:
+    from scipy.optimize import curve_fit
+except ImportError as e:
+    mu.error( "To use this feature/module, please install python-scipy" )
+    raise e
 
 def exponential2(x, a, scale, x0, y0=0):
     res = a * np.exp((x - x0)/scale) + y0
@@ -127,7 +133,7 @@ def double_exp(x, a, k1, x1, k2, x2, y0=0):
     ret = np.zeros(len(x))
     try:
         ret = a / (np.exp(k1 * (x - x1)) + np.exp(k2 * (x - x2))) + y0
-    except RuntimeWaring as e:
+    except RuntimeWarning as e:
         traceback.print_exc()
     return ret
 

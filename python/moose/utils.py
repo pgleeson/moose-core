@@ -1,17 +1,9 @@
-# -*- coding: utf-8 -*-
-# utils.py:
-#
+# -* coding: utf-8 -*-
 # Utility functions for moose.
-#
-# NOTE: Some function might break because unicode is default string in python3.
 
 from __future__ import print_function, division, absolute_import
-
-__author__           = 'Subhasis Ray, Aditya Gilra, Dilawar Singh'
-__copyright__        = "Copyright 2013, NCBS Bangalore"
-__credits__          = ["NCBS Bangalore", "Bhalla Lab"]
-__license__          = "GPL"
-__version__          = "1.0.0"
+from __future__ import print_function, division
+from __future__ import absolute_import
 
 import types
 import parser
@@ -25,10 +17,12 @@ from collections import defaultdict
 import re
 
 from moose.moose_constants import *
-
-# Print and Plot utilities.
-from moose.plot_utils import *
 from moose.print_utils import *
+# Print and Plot utilities.
+try:
+    from moose.plot_utils import *
+except Exception as e:
+    info( "Plot utilities are not loaded due to '%s'" % e )
 
 def create_table_path(model, graph, element, field):
 
@@ -88,15 +82,17 @@ def readtable(table, filename, separator=None):
     line_no = 0
     for line in in_file:
         line_no = line_no + 1
-        tokens = split(line, separator)
-        if len(token) is 0:
+        tokens = line.split(separator)
+        if len(tokens) is 0:
             continue
-        elif len(token) == 1:
-            table[ii] = float(token[0])
-        elif len(token) == 2:
-            table[int(token[0])] = float(token[1])
+        elif len(tokens) == 1:
+            table[ii] = float(tokens[0])
+        elif len(tokens) == 2:
+            table[int(tokens[0])] = float(tokens[1])
         else:
-            print("pymoose.readTable(", table, ",", filename, ",", separator, ") - line#", line_no, " does not fit.")
+            print("pymoose.readTable(", table, ",", filename, ",", separator
+                    , ") - line#", line_no, " does not fit."
+                    )
 
 def getfields(moose_object):
     """Returns a dictionary of the fields and values in this object."""
@@ -316,8 +312,9 @@ def autoposition(root):
     compartments = moose.wildcardFind('%s/##[TYPE=Compartment]' % (root.path))
     stack = [compartment for compartment in map(moose.element, compartments)
               if len(compartment.neighbors['axial']) == 0]
-    if len(stack) != 1:
-        raise Exception('There must be one and only one top level compartment. Found %d' % (len(topcomp_list)))
+
+    assert len(stack) == 1, 'There must be one and only one top level\
+            compartment. Found %d' % len(stack)
     ret = stack[0]
     while len(stack) > 0:
         comp = stack.pop()
@@ -339,6 +336,11 @@ def autoposition(root):
         stack.extend([childcomp for childcomp in map(moose.element, comp.neighbors['raxial']) if childcomp.z == 0])
     return ret
 
+def loadModel(filename, target,method='ee'):
+    moose.loadModel(filename,target)
+    moose.mooseAddChemSolver(target,method)
+    if moose.exists(target+'/kinetics/info'):
+        moose.element(target+'/kinetics/info').solver = method
 
 def readcell_scrambled(filename, target, method='ee'):
     """A special version for handling cases where a .p file has a line
@@ -845,7 +847,6 @@ def get_child_Mstring(mooseobject,mstring):
             return child
     return None
 
-# Note: This function is also moved to helper.moose_methods
 def connect_CaConc(compartment_list, temperature=None):
     """ Connect the Ca pools and channels within each of the compartments in compartment_list
      Ca channels should have a child Mstring named 'ion' with value set in MOOSE.
@@ -913,112 +914,3 @@ def connect_CaConc(compartment_list, temperature=None):
                                     #print 'Connected concOut of',caconc.path,'to concen of',channel.path
                         except TypeError:
                             pass
-
-############# added by Aditya Gilra -- end ################
-import uuid
-import unittest
-import sys
-from io import StringIO as _sio
-
-class _TestMooseUtils(unittest.TestCase):
-    def test_printtree(self):
-        s = moose.Neutral('/cell')
-        soma = moose.Neutral('%s/soma'% (s.path))
-        d1 = moose.Neutral('%s/d1'% (soma.path))
-        d2 = moose.Neutral('%s/d2'% (soma.path))
-        d3 = moose.Neutral('%s/d3'% (d1.path))
-        d4 = moose.Neutral('%s/d4'% (d1.path))
-        d5 = moose.Neutral('%s/d5'% (s.path))
-        orig_stdout = sys.stdout
-        sys.stdout = _sio()
-        printtree(s)
-        expected = """
-cell
-|
-|__ soma
-|  |
-|  |__ d1
-|  |  |
-|  |  |__ d3
-|  |  |
-|  |  |__ d4
-|  |
-|  |__ d2
-|
-|__ d5
-"""
-        self.assertEqual(sys.stdout.getvalue(), expected)
-        sys.stdout = _sio()
-        s1 = moose.Neutral('cell1')
-        c1 = moose.Neutral('%s/c1' % (s1.path))
-        c2 = moose.Neutral('%s/c2' % (c1.path))
-        c3 = moose.Neutral('%s/c3' % (c1.path))
-        c4 = moose.Neutral('%s/c4' % (c2.path))
-        c5 = moose.Neutral('%s/c5' % (c3.path))
-        c6 = moose.Neutral('%s/c6' % (c3.path))
-        c7 = moose.Neutral('%s/c7' % (c4.path))
-        c8 = moose.Neutral('%s/c8' % (c5.path))
-        printtree(s1)
-        expected1 = """
-cell1
-|
-|__ c1
-   |
-   |__ c2
-   |  |
-   |  |__ c4
-   |     |
-   |     |__ c7
-   |
-   |__ c3
-      |
-      |__ c5
-      |  |
-      |  |__ c8
-      |
-      |__ c6
-"""
-        self.assertEqual(sys.stdout.getvalue(), expected1)
-
-    def test_autoposition(self):
-        """Simple check for automatic generation of positions.
-
-        A spherical soma is created with 20 um diameter. A 100
-        compartment cable is created attached to it with each
-        compartment of length 100 um.
-
-        """
-        testid = 'test%s' % (uuid.uuid4())
-        container = moose.Neutral('/test')
-        model = moose.Neuron('/test/%s' % (testid))
-        soma = moose.Compartment('%s/soma' % (model.path))
-        soma.diameter = 20e-6
-        soma.length = 0.0
-        parent = soma
-        comps = []
-        for ii in range(100):
-            comp = moose.Compartment('%s/comp_%d' % (model.path, ii))
-            comp.diameter = 10e-6
-            comp.length = 100e-6
-            moose.connect(parent, 'raxial', comp, 'axial')
-            comps.append(comp)
-            parent = comp
-        soma = autoposition(model)
-        sigfig = 8
-        self.assertAlmostEqual(soma.x0, 0.0, sigfig)
-        self.assertAlmostEqual(soma.y0, 0.0, sigfig)
-        self.assertAlmostEqual(soma.z0, 0.0, sigfig)
-        self.assertAlmostEqual(soma.x, 0.0, sigfig)
-        self.assertAlmostEqual(soma.y, 0.0, sigfig)
-        self.assertAlmostEqual(soma.z, soma.diameter/2.0, sigfig)
-        for ii, comp in enumerate(comps):
-            print(comp.path, ii)
-            self.assertAlmostEqual(comp.x0, 0, sigfig)
-            self.assertAlmostEqual(comp.y0, 0.0, sigfig)
-            self.assertAlmostEqual(comp.z0, soma.diameter/2.0 + ii * 100e-6, sigfig)
-            self.assertAlmostEqual(comp.x, 0.0, sigfig)
-            self.assertAlmostEqual(comp.y, 0.0, sigfig)
-            self.assertAlmostEqual(comp.z, soma.diameter/2.0 + (ii + 1) * 100e-6, sigfig)
-
-if __name__ == "__main__": # test printtree
-    unittest.main()

@@ -8,7 +8,7 @@
 **********************************************************************/
 
 #include <queue>
-#include "header.h"
+#include "../basecode/header.h"
 #include "Synapse.h"
 #include "SynEvent.h"
 #include "SynHandlerBase.h"
@@ -102,6 +102,13 @@ void SimpleSynHandler::addSpike(
 {
 	assert( index < synapses_.size() );
 	events_.push( SynEvent( time, weight ) );
+}
+
+double SimpleSynHandler::getTopSpike( unsigned int index ) const
+{
+	if ( events_.empty() )
+		return 0.0;
+	return events_.top().time;
 }
 
 void SimpleSynHandler::vProcess( const Eref& e, ProcPtr p )

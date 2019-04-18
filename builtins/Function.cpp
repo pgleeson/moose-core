@@ -45,13 +45,13 @@
 
 // Code:
 
-#include "header.h"
+#include "../basecode/header.h"
 #include "../utility/utility.h"
 #include "../utility/numutil.h"
 #include "Variable.h"
 
 #include "Function.h"
-#include "ElementValueFinfo.h"
+#include "../basecode/ElementValueFinfo.h"
 
 #define PARSER_MAXVARS 100
 
@@ -125,9 +125,19 @@ const Cinfo * Function::initCinfo()
         "When *false*, disables event-driven calculation and turns on "
 		"Process-driven calculations. \n"
         "When *true*, enables event-driven calculation and turns off "
-		"Process-driven calculations. \n",
+		"Process-driven calculations. \n"
+		"Defaults to *false*. \n",
         &Function::setUseTrigger,
         &Function::getUseTrigger);
+    static ValueFinfo< Function, bool > doEvalAtReinit(
+        "doEvalAtReinit",
+        "When *false*, disables function evaluation at reinit, and "
+		"just emits a value of zero to any message targets. \n"
+        "When *true*, does a function evaluation at reinit and sends "
+		"the computed value to any message targets. \n"
+		"Defaults to *false*. \n",
+        &Function::setDoEvalAtReinit,
+        &Function::getDoEvalAtReinit);
     static ElementValueFinfo< Function, string > expr(
         "expr",
         "Mathematical expression defining the function. The underlying parser\n"
@@ -150,7 +160,7 @@ const Cinfo * Function::initCinfo()
         "log2        1       logarithm to the base 2\n"
         "log10       1       logarithm to the base 10\n"
         "log         1       logarithm to the base 10\n"
-        "ln  1       logarithm to base e (2.71828...)\n"
+        "ln  	     1       logarithm to base e (2.71828...)\n"
         "exp         1       e raised to the power of x\n"
         "sqrt        1       square root of a value\n"
         "sign        1       sign function -1 if x<0; 1 if x>0\n"
@@ -166,32 +176,34 @@ const Cinfo * Function::initCinfo()
         "                    if seed = -1, a 'random' seed is created using either\n"
         "                    by random_device or by reading system clock\n"
         "\nOperators\n"
-        "Op  meaning         priority\n"
-        "=   assignment     -1\n"
-        "&&  logical and     1\n"
-        "||  logical or      2\n"
-        "<=  less or equal   4\n"
-        ">=  greater or equal        4\n"
-        "!=  not equal       4\n"
-        "==  equal   4\n"
-        ">   greater than    4\n"
-        "<   less than       4\n"
-        "+   addition        5\n"
-        "-   subtraction     5\n"
-        "*   multiplication  6\n"
-        "/   division        6\n"
-        "^   raise x to the power of y       7\n"
-        "%   floating point modulo         7\n"
+        "Op  meaning         		priority\n"
+        "=   assignment     		-1\n"
+        "&&  logical and     		1\n"
+        "||  logical or      		2\n"
+        "<=  less or equal   		4\n"
+        ">=  greater or equal  		4\n"
+        "!=  not equal         		4\n"
+        "==  equal   			4\n"
+        ">   greater than    		4\n"
+        "<   less than       		4\n"
+        "+   addition        		5\n"
+        "-   subtraction     		5\n"
+        "*   multiplication  		6\n"
+        "/   division        		6\n"
+        "^   raise x to the power of y  7\n"
+        "%   floating point modulo      7\n"
         "\n"
-        "?:  if then else operator   C++ style syntax\n",
+        "?:  if then else operator   	C++ style syntax\n",
         &Function::setExpr,
-        &Function::getExpr);
+        &Function::getExpr
+    );
 
     static ValueFinfo< Function, unsigned int > numVars(
         "numVars",
         "Number of variables used by Function.",
         &Function::setNumVar,
-        &Function::getNumVar);
+        &Function::getNumVar
+    );
 
     static FieldElementFinfo< Function, Variable > inputs(
         "x",
@@ -199,7 +211,8 @@ const Cinfo * Function::initCinfo()
         Variable::initCinfo(),
         &Function::getVar,
         &Function::setNumVar,
-        &Function::getNumVar);
+        &Function::getNumVar
+    );
 
     static LookupValueFinfo < Function, string, double > constants(
         "c",
@@ -229,10 +242,7 @@ const Cinfo * Function::initCinfo()
     static DestFinfo reinit( "reinit",
                              "Handles reinit call.",
                              new ProcOpFunc< Function >( &Function::reinit ) );
-    static Finfo* processShared[] =
-            {
-		&process, &reinit
-            };
+    static Finfo* processShared[] = { &process, &reinit };
 
     static SharedFinfo proc( "proc",
                              "This is a shared message to receive Process messages "
@@ -257,6 +267,8 @@ const Cinfo * Function::initCinfo()
                 &rate,
                 &derivative,
                 &mode,
+				&useTrigger,
+				&doEvalAtReinit,
                 &expr,
                 &numVars,
                 &inputs,
@@ -316,7 +328,7 @@ static const Cinfo * functionCinfo = Function::initCinfo();
 
 Function::Function(): _t(0.0), _valid(false), _numVar(0), _lastValue(0.0),
     _value(0.0), _rate(0.0), _mode(1),
-    _useTrigger( false ), _stoich(0)
+    _useTrigger( false ), _doEvalAtReinit( false ), _stoich(0)
 {
     _parser.SetVarFactory(_functionAddVar, this);
     _independent = "x0";
@@ -332,18 +344,6 @@ Function::Function(): _t(0.0), _valid(false), _numVar(0), _lastValue(0.0),
     }
     _valid = true;
 }
-
-#if 0
-void Function::extendMuParser( void )
-{
-    // Adding pi and e, the defaults are `_pi` and `_e`
-    _parser.DefineConst(_T("pi"), (mu::value_type)M_PI);
-    _parser.DefineConst(_T("e"), (mu::value_type)M_E);
-    // Add support
-    _parser.DefineVar( _T("t"),  &this->_t );
-    _parser.DefineOprt( _T("%"), &Function::muCallbackFMod, 7, mu::EOprtAssociativity::oaRIGHT, 0);
-}
-#endif
 
 Function::Function(const Function& rhs): _numVar(rhs._numVar),
     _lastValue(rhs._lastValue),
@@ -382,7 +382,7 @@ Function::Function(const Function& rhs): _numVar(rhs._numVar),
 
 Function& Function::operator=(const Function rhs)
 {
-	static Eref er;
+    static Eref er;
     _clearBuffer();
     _mode = rhs._mode;
     _lastValue = rhs._lastValue;
@@ -472,8 +472,10 @@ double * _functionAddVar(const char *name, void *data)
     Function* function = reinterpret_cast< Function * >(data);
     double * ret = NULL;
     string strname(name);
+
     // Names starting with x are variables, everything else is constant.
-    if (strname[0] == 'x'){
+    if (strname[0] == 'x')
+    {
         int index = atoi(strname.substr(1).c_str());
         if ((unsigned)index >= function->_varbuf.size()){
             function->_varbuf.resize(index+1, 0);
@@ -485,7 +487,9 @@ double * _functionAddVar(const char *name, void *data)
             function->_numVar = function->_varbuf.size();
         }
         ret = &(function->_varbuf[index]->value);
-    } else if (strname[0] == 'y'){
+    } 
+    else if (strname[0] == 'y')
+    {
         int index = atoi(strname.substr(1).c_str());
         if ((unsigned)index >= function->_pullbuf.size()){
             function->_pullbuf.resize(index+1, 0 );
@@ -496,9 +500,13 @@ double * _functionAddVar(const char *name, void *data)
             }
         }
         ret = function->_pullbuf[index];
-    } else if (strname == "t"){
+    }
+    else if (strname == "t")
+    {
         ret = &function->_t;
-    } else {
+    }
+    else 
+    {
         cerr << "Got an undefined symbol: " << name << endl
              << "Variables must be named xi, yi, where i is integer index."
 	     << " You must define the constants beforehand using LookupField c: c[name]"
@@ -526,24 +534,12 @@ double * _functionAddVar(const char *name, void *data)
  */
 unsigned int Function::addVar()
 {
-//     unsigned int newVarIndex = _numVar;
-//     ++_numVar;
-//     stringstream name;
-//     name << "x" << newVarIndex;
-//     _functionAddVar(name.str().c_str(), this);
-    //     return newVarIndex;
     return 0;
 }
 
-// void Function::dropVar(unsigned int msgLookup)
-// {
-//     // Don't know what this can possibly mean in the context of
-//     // evaluating a set expression.
-// }
-
 void Function::setExpr(const Eref& eref, string expr)
 {
-	this->innerSetExpr( eref, expr ); // Refer to the virtual function here.
+    this->innerSetExpr( eref, expr ); // Refer to the virtual function here.
 }
 
 // Virtual function, this does the work.
@@ -599,6 +595,16 @@ void Function::setUseTrigger(bool useTrigger )
 bool Function::getUseTrigger() const
 {
     return _useTrigger;
+}
+
+void Function::setDoEvalAtReinit(bool doEvalAtReinit )
+{
+    _doEvalAtReinit = doEvalAtReinit;
+}
+
+bool Function::getDoEvalAtReinit() const
+{
+    return _doEvalAtReinit;
 }
 
 double Function::getValue() const
@@ -665,11 +671,8 @@ double Function::getDerivative() const
 void Function::setNumVar(const unsigned int num)
 {
     _clearBuffer();
-    for (unsigned int ii = 0; ii < num; ++ii){
-        stringstream name;
-        name << "x" << ii;
-        _functionAddVar(name.str().c_str(), this);
-    }
+    for (unsigned int ii = 0; ii < num; ++ii)
+        _functionAddVar( ("x"+std::to_string(ii)).c_str(), this);
 }
 
 unsigned int Function::getNumVar() const
@@ -770,8 +773,11 @@ void Function::reinit(const Eref &e, ProcPtr p)
         _valid = false;
     }
     _t = p->currTime;
-    _value = 0.0;
-    _lastValue = 0.0;
+	if (_doEvalAtReinit) {
+    	_lastValue = _value = getValue();
+	} else {
+    	_lastValue = _value = 0.0;
+	}
     _rate = 0.0;
     switch (_mode){
         case 1: {
