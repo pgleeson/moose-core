@@ -333,7 +333,7 @@ class NML2Reader(object):
         if not 'all' in sg_to_segments:
             sg_to_segments['all'] = [ s for s in segments ]
             
-        self._cell_to_sg[nmlcell] = sg_to_segments
+        self._cell_to_sg[nmlcell.id] = sg_to_segments
         return id_to_comp, id_to_segment, sg_to_segments
 
     def importBiophysics(self, nmlcell, moosecell):
@@ -355,7 +355,7 @@ class NML2Reader(object):
         self.importInitMembPotential(nmlcell, moosecell, mp)
 
     def importCapacitances(self, nmlcell, moosecell, specificCapacitances):
-        sg_to_segments = self._cell_to_sg[nmlcell]
+        sg_to_segments = self._cell_to_sg[nmlcell.id]
         for specific_cm in specificCapacitances:
             cm = SI(specific_cm.value)
             for seg in sg_to_segments[specific_cm.segment_groups]:
@@ -363,7 +363,7 @@ class NML2Reader(object):
                 comp.Cm = sarea(comp) * cm
                 
     def importInitMembPotential(self, nmlcell, moosecell, membraneProperties):
-        sg_to_segments = self._cell_to_sg[nmlcell]
+        sg_to_segments = self._cell_to_sg[nmlcell.id]
         for imp in membraneProperties.init_memb_potentials:
             initv = SI(imp.value)
             for seg in sg_to_segments[imp.segment_groups]:
@@ -375,7 +375,7 @@ class NML2Reader(object):
         self.importSpecies(nmlcell, properties)
 
     def importSpecies(self, nmlcell, properties):
-        sg_to_segments = self._cell_to_sg[nmlcell]
+        sg_to_segments = self._cell_to_sg[nmlcell.id]
         for species in properties.species:
             if (species.concentration_model is not None) and \
                (species.concentration_model.id  not in self.proto_pools):
@@ -404,7 +404,7 @@ class NML2Reader(object):
         return pool
 
     def importAxialResistance(self, nmlcell, intracellularProperties):
-        sg_to_segments = self._cell_to_sg[nmlcell]
+        sg_to_segments = self._cell_to_sg[nmlcell.id]
         for r in intracellularProperties.resistivities:
             segments = getSegments(nmlcell, r, sg_to_segments)
             for seg in segments:
@@ -448,7 +448,7 @@ class NML2Reader(object):
                     return np.array(rate)
 
     def importChannelsToCell(self, nmlcell, moosecell, membrane_properties):
-        sg_to_segments = self._cell_to_sg[nmlcell]
+        sg_to_segments = self._cell_to_sg[nmlcell.id]
         for chdens in membrane_properties.channel_densities + membrane_properties.channel_density_v_shifts:
             segments = getSegments(nmlcell, chdens, sg_to_segments)
             condDensity = SI(chdens.cond_density)
