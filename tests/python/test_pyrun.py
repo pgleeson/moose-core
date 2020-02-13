@@ -1,4 +1,3 @@
-import sys
-sys.path.append('../../python')
+# -*- coding: utf-8 -*-
 import moose
-moose.PyRun( '/p' )
+moose.PyRun('/p')

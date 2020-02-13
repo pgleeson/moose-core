@@ -10,12 +10,15 @@
 
 #ifndef _ZOMBIE_COMPARTMENT_H
 #define _ZOMBIE_COMPARTMENT_H
-#include "header.h"
-#include "ElementValueFinfo.h"
-#include "../external/debug/print_function.hpp"
-#include "../randnum/randnum.h"
+
+#include "../basecode/global.h"
+
+#include "../basecode/header.h"
+#include "../basecode/ElementValueFinfo.h"
+#include "../utility/print_function.hpp"
 #include "../biophysics/CompartmentBase.h"
 #include "../biophysics/Compartment.h"
+#include "../randnum/RNG.h"
 #include "HinesMatrix.h"
 #include "HSolveStruct.h"
 #include "HSolvePassive.h"
@@ -132,12 +135,17 @@ public:
     //////////////////////////////////////////////////////////////////
     // utility funcs
     //////////////////////////////////////////////////////////////////
+    double mtrand( void );
+
 private:
     HSolve* hsolve_;
 
     static const double EPSILON;
 
     void copyFields( moose::Compartment* c );
+
+    moose::RNG rng;
+
 };
 
 #endif // _ZOMBIE_COMPARTMENT_H

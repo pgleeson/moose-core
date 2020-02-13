@@ -11,6 +11,13 @@
 #ifndef _WILDCARD_H
 #define _WILDCARD_H
 
+#include <string>
+#include <vector>
+using namespace std;
+
+class Id;
+class ObjId;
+
 // Just a couple of extern definitions for general use.
 
 /**
@@ -50,14 +57,16 @@ int simpleWildcardFind( const string& path, vector<ObjId>& ret);
  * wildcardFind returns the number of Ids found.
  * This behaves the same as simpleWildcardFind, except that it eliminates
  * non-unique entries, and in the process will scramble the ordering.
+ *
+ * If clear=true, then reset the ret to 0 size.
  */
-int wildcardFind(const string& n, vector<ObjId>& ret);
+int wildcardFind(const string& n, vector<ObjId>& ret, bool clear = true);
 
 /**
  * Recursive function to compare all descendants and cram matches into ret.
  * Returns number of matches.
  * Index is either ALLDATA == ~0U, or a specified number.
- * insideBrace is a string that can be empty, or specify one of the 
+ * insideBrace is a string that can be empty, or specify one of the
  * expressions:
  *   [TYPE==<string>]
  *   [TYPE=<string>]
@@ -69,7 +78,22 @@ int wildcardFind(const string& n, vector<ObjId>& ret);
  *   [ISA!=<string>]
  *   [FIELD(<fieldName)=<string>]
  */
-int allChildren( ObjId start, unsigned int index, 
+int allChildren( ObjId start, unsigned int index,
 				const string& insideBrace, vector< ObjId >& ret );
+
+
+/**
+ * matchBeforeBrace checks to see if the wildcard string 'name' matches
+ * up with the name of the id.
+ * Rules:
+ *      # may be used at multiple places in the wildcard.
+ *      It substitutes for any number of characters.
+ *
+ * 		? may be used any number of times in the wildcard, and
+ * 		must substitute exactly for characters.
+ *
+ * 		If bracesInName, then the Id name itself includes braces.
+ */
+bool matchBeforeBrace( ObjId id, const string& wild );
 
 #endif // _WILDCARD_H

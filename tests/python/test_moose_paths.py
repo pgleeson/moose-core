@@ -1,5 +1,4 @@
-import sys
-sys.path.append("../python")
+# -*- coding: utf-8 -*-
 import moose
 import re
 
