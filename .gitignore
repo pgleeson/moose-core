@@ -145,3 +145,4 @@ Session.vim
 /python/moose/neuroml2/schema/PyNN.xml
 /python/moose/neuroml2/schema/Simulation.xml
 /python/moose/neuroml2/schema/Synapses.xml
+/build*

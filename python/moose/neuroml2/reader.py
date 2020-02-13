@@ -59,9 +59,11 @@ except ImportError:
     pass
 import sys, os
 import numpy as np
+from moose.neuroml2.hhfit import exponential2
+from moose.neuroml2.hhfit import sigmoid2
+from moose.neuroml2.hhfit import linoid2
+from moose.neuroml2.units import SI
 import moose
-from units import SI
-import hhfit
 import logging
 import math
 
@@ -143,7 +145,13 @@ def getSegments(nmlcell, component, sg_to_segments):
     else:
         segments = sg_to_segments[sg]
         
-    return list(set(segments))
+    unique_segs = []
+    unique_segs_ids = []
+    for s in segments:
+        if not s.id in unique_segs_ids:
+            unique_segs.append(s)
+            unique_segs_ids.append(s.id)
+    return unique_segs
 
 
 class NML2Reader(object):
@@ -420,10 +428,10 @@ class NML2Reader(object):
     
 
     rate_fn_map = {
-        'HHExpRate': hhfit.exponential2,
-        'HHSigmoidRate': hhfit.sigmoid2,
-        'HHSigmoidVariable': hhfit.sigmoid2,
-        'HHExpLinearRate': hhfit.linoid2 }
+        'HHExpRate': exponential2,
+        'HHSigmoidRate': sigmoid2,
+        'HHSigmoidVariable': sigmoid2,
+        'HHExpLinearRate': linoid2 }
 
     def calculateRateFn(self, ratefn, vmin, vmax, tablen=3000, vShift='0mV'):
         """Returns A / B table from ngate."""
@@ -494,7 +502,8 @@ class NML2Reader(object):
         orig = chdens.id
         chid = moose.copy(proto_chan, comp, chdens.id)
         chan = moose.element(chid)
-        for p in self.paths_to_chan_elements.keys():
+        els = list(self.paths_to_chan_elements.keys())
+        for p in els:
             pp = p.replace('%s/'%chdens.ion_channel,'%s/'%orig)
             self.paths_to_chan_elements[pp] = self.paths_to_chan_elements[p].replace('%s/'%chdens.ion_channel,'%s/'%orig)
         #print(self.paths_to_chan_elements)

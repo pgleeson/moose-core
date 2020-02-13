@@ -45,7 +45,7 @@
 from __future__ import print_function
 import unittest
 import moose
-from reader import NML2Reader
+from moose.neuroml2.reader import NML2Reader
 import neuroml as nml
 
 class TestPassiveCell(unittest.TestCase):

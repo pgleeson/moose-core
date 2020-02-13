@@ -58,7 +58,7 @@ fully implemented. Hence this is not included in __all__.
 
 """
 __author__ = 'Subhasis Ray'
-from reader import NML2Reader
+from moose.neuroml2.reader import NML2Reader
 
 __all__ = ['NML2Reader']
 

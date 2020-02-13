@@ -65,7 +65,7 @@ from matplotlib import pyplot as plt
 import moose
 from moose.utils import autoposition
 import neuroml
-import hhfit
+import moose.neuroml2.hhfit
 
 
 def convert_morphology(root, positions='auto'):

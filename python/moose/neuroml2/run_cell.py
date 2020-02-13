@@ -44,7 +44,7 @@
 
 import moose
 import sys
-from reader import NML2Reader
+from moose.neuroml2.reader import NML2Reader
 import numpy as np
 
     

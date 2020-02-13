@@ -54,7 +54,7 @@ import numpy as np
 import uuid
 import unittest
 import pylab
-import hhfit
+import moose.neuroml2.hhfit as hhfit
 
 class TestFindRateFn(unittest.TestCase):
     def setUp(self):
