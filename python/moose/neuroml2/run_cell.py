@@ -43,9 +43,8 @@
 # Code:
 
 import moose
-import moose.utils as mu
 import sys
-from reader import NML2Reader
+from moose.neuroml2.reader import NML2Reader
 import numpy as np
 
     
@@ -77,10 +76,16 @@ def run(nogui):
     plotdt = 1e-4
     simtime = 150e-3
     
-    for i in range(8):
-        moose.setClock( i, simdt )
-    moose.setClock( 8, plotdt )
-    moose.reinit()
+    if (1):
+        #moose.showmsg( '/clock' )
+        for i in range(8):
+            moose.setClock( i, simdt )
+        moose.setClock( 8, plotdt )
+        moose.reinit()
+    else:
+        utils.resetSim([model.path, data.path], simdt, plotdt, simmethod='ee')
+        moose.showmsg( '/clock' )
+        
     moose.start(simtime)
     
     print("Finished simulation!")

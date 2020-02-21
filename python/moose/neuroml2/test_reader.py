@@ -51,7 +51,7 @@ import unittest
 import numpy as np
 import moose
 import neuroml as nml
-from reader import NML2Reader
+from moose.neuroml2.reader import NML2Reader
 
 class TestFullCell(unittest.TestCase):
     def setUp(self):
